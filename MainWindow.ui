@@ -32,7 +32,7 @@
       <x>0</x>
       <y>-1</y>
       <width>641</width>
-      <height>41</height>
+      <height>64</height>
      </rect>
     </property>
     <layout class="QGridLayout" name="filterWrap">
@@ -48,7 +48,20 @@
      <property name="spacing">
       <number>10</number>
      </property>
-     <item row="0" column="0">
+     <item row="1" column="1">
+      <widget class="QComboBox" name="select_employee">
+       <property name="editable">
+        <bool>true</bool>
+       </property>
+       <property name="placeholderText">
+        <string>Выберите сотрудника</string>
+       </property>
+       <property name="frame">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="0">
       <widget class="QComboBox" name="select_departments">
        <property name="whatsThis">
         <string/>
@@ -61,16 +74,17 @@
        </property>
       </widget>
      </item>
+     <item row="0" column="0">
+      <widget class="QLabel" name="label">
+       <property name="text">
+        <string>Выберите отдел *</string>
+       </property>
+      </widget>
+     </item>
      <item row="0" column="1">
-      <widget class="QComboBox" name="selectEmployee">
-       <property name="editable">
-        <bool>true</bool>
-       </property>
-       <property name="placeholderText">
+      <widget class="QLabel" name="label_2">
+       <property name="text">
         <string>Выберите сотрудника</string>
-       </property>
-       <property name="frame">
-        <bool>true</bool>
        </property>
       </widget>
      </item>
@@ -130,7 +144,7 @@
       <x>0</x>
       <y>160</y>
       <width>641</width>
-      <height>271</height>
+      <height>301</height>
      </rect>
     </property>
    </widget>
