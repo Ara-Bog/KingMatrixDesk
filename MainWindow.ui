@@ -208,12 +208,12 @@
       </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="clear">
+      <widget class="QPushButton" name="clear_logs">
        <property name="cursor">
         <cursorShape>PointingHandCursor</cursorShape>
        </property>
        <property name="text">
-        <string>Очистить вывод</string>
+        <string>Очистить логи</string>
        </property>
       </widget>
      </item>

@@ -1,154 +1,268 @@
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import uic
+from PyQt5.QtCore import QSettings
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
+from PyQt5.QtWidgets import QMessageBox, QFileDialog, QMainWindow, QApplication
+from psycopg2 import connect
+import sys
+from datetime import datetime
+import threading
 # custom
-from sobi import HandleSelfSignedCertificate
-from PyQt5.QtSql import QSqlDatabase, QSqlQuery, QSqlTableModel, QSqlQueryModel
-import psycopg2
+from handler import HandlerRoles
+import sys
+import os
+import passwords
 
-names_list = [
-    'Болдаков Алексей Ильич',
-    'Макаров Михаил Игоревич'
-]
-
-# TEST_DATA = {
-#     'АОКЗ': {'Пользователь СКЗИ': ['Болдаков Алексей Ильич']}, 
-#     'Официальный сайт для размещения информации о государственных и муниципальных учреждениях': {'Территориальный орган федерального казначейства_подг': ['Болдаков Алексей Ильич'], 'Территориальный орган федерального казначейства_публ': ['Болдаков Алексей Ильич']}, 'Подсистема обеспечения информационной безопасности': {'Визирующий': ['Болдаков Алексей Ильич'], 'Регистратор': ['Болдаков Алексей Ильич', 'Макаров Михаил Игоревич'], 'Оператор ИС': ['Макаров Михаил Игоревич']}, 'Подсистема управления жизненным циклом Системы управления эксплуатации Федерального казначейства': {'ФК.Инженер': ['Болдаков Алексей Ильич'], 'ФК.Специалист': ['Болдаков Алексей Ильич']}, 'Система комплексного информационно-аналитического обеспечения деятельности органов Федерального казначейства': {'СКИАО.011 ИАП, Сотрудник ТОФК': ['Болдаков Алексей Ильич'], 'СКИАО.027 СПД, Ввод данных': ['Болдаков Алексей Ильич'], 'СКИАО.031 СПД, Согласующий': ['Болдаков Алексей Ильич'], 'СКИАО.080 СПД, Передача на утверждение': ['Болдаков Алексей Ильич']}, 'Электронный бюджет': {'БО_ДО.009 ТОФК.Просмотр БО_ДО': ['Болдаков Алексей Ильич', 'Макаров Михаил Игоревич'], 'ПИАО.100 Кассовое планирование и прогнозирование': ['Болдаков Алексей Ильич'], 'ПИАО.200 Исполнение бюджетов': ['Болдаков Алексей Ильич'], 'ПИАО.300 НП и ГП': ['Болдаков Алексей Ильич'], 'ПИАО.400 Перечни и реестры': ['Болдаков Алексей Ильич'], 'ПИАО.500 Закупки': ['Болдаков Алексей Ильич'], 'ПИАО.600 Бюджетный учет': ['Болдаков Алексей Ильич'], 'ПИАО.700 Контроль и надзор': ['Болдаков Алексей Ильич'], 'ПИАО.800 Казначейское сопровождение': ['Болдаков Алексей Ильич'], 'ПИАО.ФК': 
-# ['Болдаков Алексей Ильич'], 'ПИАО.ФК.000 Просмотр всего': ['Болдаков Алексей Ильич'], 'УиО Создание документа Карточка учета первичного документа': ['Болдаков Алексей Ильич'], 'УиО Формирование документов по администрированию доходов c ЦБ ввод': ['Болдаков Алексей Ильич'], 'УиО Формирование документов по учету операций по предоставлению бюджетных кредитов с ЦБ ввод': ['Болдаков Алексей Ильич'], 'УНФА Комиссия по приему и списанию нефинансовых активов c ЦБ ввод': ['Болдаков Алексей Ильич'], 'УНФА Комиссия по приему и списанию нефинансовых активов c ЦБ согласование': ['Болдаков Алексей Ильич'], 'УНФА Формирование первичных документов c ЦБ ввод': ['Болдаков Алексей Ильич'], 'УНФА Формирование первичных документов c ЦБ согласование': ['Болдаков Алексей Ильич'], 'УНФА. Формирование документов по проведению инвентаризаций нефинансовых активов c ЦБ ввод': ['Болдаков Алексей Ильич'], 'УНФА. Формирование документов по проведению инвентаризаций нефинансовых активов c ЦБ согласование': ['Болдаков Алексей Ильич'], 'УНФА_УиО Голосование за резолюцию по комиссионному решению': ['Болдаков Алексей Ильич'], 'УНФА_УИО Просмотр документов бухгалтерского учета, формирование отчетов, поступивших задач пользователей учреждения в конечном статусе документа': ['Болдаков Алексей Ильич'], 'УНФА_УиО Просмотр документов бухгалтерского учета, формирование отчетов, просмотр поступивших задач пользователей учреждения': ['Болдаков Алексей Ильич'], 'УНФА_УИО Установка учреждений Администратор': ['Болдаков Алексей Ильич'], 'УНФА_УиО Формирование документов по решению комиссии ': ['Болдаков Алексей Ильич'], 'РУБПНУБП.009 - Чтение всех документов УО': ['Макаров Михаил Игоревич'], 'РУБПНУБП.010 - Чтение всех документов всех УО': ['Макаров Михаил Игоревич'], 'УНФА_УИО Локальный администратор ЦБ ввод': ['Макаров Михаил Игоревич'], 'УНФА_УИО Формирование бухгалтерских проводок и обработка документов сотрудник ЦБ ввод': ['Макаров Михаил Игоревич']}}
-
+'Шаблоны логов'
+MESSAGES = {
+    100: {'type_msg': 'info', 'title': "Сбор данных в системе - {} закончен."},
+    102: {'type_msg': 'info', 'title': "Начат сбор по пользователю - {}."},
+    200: {'type_msg': 'success', 'title': "Данные пользователя успешно получены!"},
+    201: {'type_msg': 'success', 'title': "Данные добавлены в базу данных!"},
+    202: {'type_msg': 'info', 'title': "Начат сбор в системе - {}."},
+    400: {'type_msg': 'error', 'title': "Ошибка добавления данных по системе {} в базу данных!"},
+    401: {'type_msg': 'error', 'title': "Ошибка в получении данных пользователя!"},
+    403: {'type_msg': 'error', 'title': "Запрос не может быть обработан."},
+    404: {'type_msg': 'info', 'title': "Пользователь не найден в подсистеме."},
+}
 
 class MyModel(QStandardItemModel):
+    '''Модель для вывода логов'''
     def __init__(self, parent=None):
         super(MyModel, self).__init__(parent)
+        self.log_symbols = {
+            'info': 'ℹ',
+            'error': '❌',
+            'success': '✅'
+        }
+        self.setColumnCount(1)
+        self.setHorizontalHeaderLabels(['Логи'])
 
-    def setup_data(self, data: dict, employee: list):
-        self.clear()
+    def add_data(self, data: list):
+        symbol = self.log_symbols.get(data[1], data[1])
+        row_msg = QStandardItem(f'{data[0]}\n{symbol} - {data[2]}\n')
+        if data[3] != "":
+            system_item = QStandardItem(data[3])
+            row_msg.appendRow(system_item)
+            
+        self.insertRow(0, row_msg)
 
-        self.setColumnCount(len(employee) + 1)
-        self.setHorizontalHeaderLabels(['Подсистема/Роль', *employee])
+# # Для динамического изменения ширины колонок таблицы
+# class ItemWordWrap(QStyledItemDelegate):
+#     def __init__(self, parent=None):
+#         QStyledItemDelegate.__init__(self, parent)
+#         self.parent = parent
 
-        for system, roles in data.items():
-            system_item = QStandardItem(system)
-            for role, users in roles.items():
-                role_item = QStandardItem(role)
-                system_item.appendRow([role_item, *[QStandardItem('✅' if user in employee else '❌') for user in users]])
-                
-            self.appendRow(system_item)
+#     def sizeHint(self, option, index):
+#         text = index.model().data(index)
+#         document = QTextDocument()
+#         document.setHtml(text) 
+#         width = index.model().data(index, QtCore.Qt.UserRole+1)
+#         if not width:
+#             width = 20
+#         document.setTextWidth(width) 
+#         return QtCore.QSize(math.ceil(document.idealWidth() + 10),  math.ceil(document.size().height()))    
 
-class Ui_MainWindow(object):
-    def __init__(self, request: callable):
-        self.request = request
-        self.conn_matrix = psycopg2.connect(
-            database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
+#     def paint(self, painter, option, index):
+#         text = index.model().data(index) 
+#         document = QTextDocument()
+#         document.setHtml(text)       
+#         document.setTextWidth(option.rect.width())
+#         index.model().setData(index, option.rect.width(), QtCore.Qt.UserRole+1)
+#         painter.save() 
+#         painter.translate(option.rect.x(), option.rect.y()) 
+#         document.drawContents(painter)
+#         painter.restore()
+
+class Ui(QMainWindow):
+    __types_msg = {
+        "info": QMessageBox.Information,
+        "err": QMessageBox.Critical,
+        "warn": QMessageBox.Warning
+    }
+    def __init__(self, handles: dict):
+        super(Ui, self).__init__()
+        self.conn_matrix = connect(
+            database='matrix', **passwords.DB
+            # database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
         )
-        self.conn_auth = psycopg2.connect(
-            database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
+        self.conn_auth = connect(
+            database='auth_db', **passwords.DB
+            # database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
         )
         
-
-    def setupUi(self, MainWindow):
-        MainWindow.setObjectName("MainWindow")
-        MainWindow.resize(640, 480)
-        MainWindow.setMinimumSize(QtCore.QSize(640, 480))
-        MainWindow.setMaximumSize(QtCore.QSize(640, 480))
-        self.centralwidget = QtWidgets.QWidget(MainWindow)
-        self.centralwidget.setObjectName("centralwidget")
-        self.gridLayoutWidget = QtWidgets.QWidget(self.centralwidget)
-        self.gridLayoutWidget.setGeometry(QtCore.QRect(0, -1, 641, 41))
-        self.gridLayoutWidget.setObjectName("gridLayoutWidget")
-        self.filterWrap = QtWidgets.QGridLayout(self.gridLayoutWidget)
-        self.filterWrap.setContentsMargins(15, 20, 15, 0)
-        self.filterWrap.setSpacing(10)
-        self.filterWrap.setObjectName("filterWrap")
-        self.select_departments = QtWidgets.QComboBox(self.gridLayoutWidget)
-        self.select_departments.setWhatsThis("")
-        self.select_departments.setEditable(True)
-        self.select_departments.setObjectName("select_departments")
-        self.filterWrap.addWidget(self.select_departments, 0, 0, 1, 1)
-        self.select_employee = QtWidgets.QComboBox(self.gridLayoutWidget)
-        self.select_employee.setEditable(True)
-        self.select_employee.setFrame(True)
-        self.select_employee.setObjectName("select_employee")
-        self.filterWrap.addWidget(self.select_employee, 0, 1, 1, 1)
-        self.gridLayoutWidget_2 = QtWidgets.QWidget(self.centralwidget)
-        self.gridLayoutWidget_2.setGeometry(QtCore.QRect(0, 70, 641, 41))
-        self.gridLayoutWidget_2.setObjectName("gridLayoutWidget_2")
-        self.gridLayout = QtWidgets.QGridLayout(self.gridLayoutWidget_2)
-        self.gridLayout.setContentsMargins(15, 0, 15, 0)
-        self.gridLayout.setObjectName("gridLayout")
-        self.checker_poib = QtWidgets.QCheckBox(self.gridLayoutWidget_2)
-        self.checker_poib.setObjectName("checker_poib")
-        self.gridLayout.addWidget(self.checker_poib, 0, 0, 1, 1)
-        self.checker_eis = QtWidgets.QCheckBox(self.gridLayoutWidget_2)
-        self.checker_eis.setObjectName("checker_eis")
-        self.gridLayout.addWidget(self.checker_eis, 0, 1, 1, 1)
-        self.checker_axiok = QtWidgets.QCheckBox(self.gridLayoutWidget_2)
-        self.checker_axiok.setObjectName("checker_axiok")
-        self.gridLayout.addWidget(self.checker_axiok, 0, 2, 1, 1)
-        self.outView = QtWidgets.QTreeView(self.centralwidget)
-        self.outView.setGeometry(QtCore.QRect(0, 160, 641, 271))
-        self.outView.setObjectName("outView")
+        self.list_systems = {}
+        self.list_users = {}
+        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'MainWindow.ui')
+        uic.loadUi(ui_file, self)
+        self.select_departments.currentIndexChanged.connect(self.onChangeDepartment)
+        self.submit.clicked.connect(self.get_data_tree)
+        self.getDefaultData()
         self.model = MyModel()
         self.outView.setModel(self.model)
-        self.horizontalLayoutWidget = QtWidgets.QWidget(self.centralwidget)
-        self.horizontalLayoutWidget.setGeometry(QtCore.QRect(320, 110, 321, 51))
-        self.horizontalLayoutWidget.setObjectName("horizontalLayoutWidget")
-        self.horizontalLayout = QtWidgets.QHBoxLayout(self.horizontalLayoutWidget)
-        self.horizontalLayout.setContentsMargins(0, 0, 15, 0)
-        self.horizontalLayout.setSpacing(10)
-        self.horizontalLayout.setObjectName("horizontalLayout")
-        self.submit = QtWidgets.QPushButton(self.horizontalLayoutWidget)
-        self.submit.clicked.connect(self.get_data_tree)
-        self.submit.setObjectName("submit")
-        self.horizontalLayout.addWidget(self.submit)
-        self.clear = QtWidgets.QPushButton(self.horizontalLayoutWidget)
-        self.clear.setObjectName("clear")
-        self.horizontalLayout.addWidget(self.clear)
-        MainWindow.setCentralWidget(self.centralwidget)
-        self.menubar = QtWidgets.QMenuBar(MainWindow)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 640, 21))
-        self.menubar.setObjectName("menubar")
-        MainWindow.setMenuBar(self.menubar)
+        self.clear_logs.clicked.connect(self.clear)
+        self.fileDialog.clicked.connect(self.openFileDialog)
+        # self.outView.setItemDelegate(ItemWordWrap(self.outView))
+        self.handler = handler
+        self.cache = []
+        self.show()
 
-        self.retranslateUi(MainWindow)
-        QtCore.QMetaObject.connectSlotsByName(MainWindow)
+    def openFileDialog(self):
+        filePath, _ = QFileDialog.getOpenFileName(self, "Путь к браузеру", self.browserPath.text(), "Executable Files (*.exe *.bin *.sh)")
+        if filePath:
+            self.browserPath.setText(filePath)
 
-    def setListEmpoyees(self, items):
-        self.select_employee.clear()
-        self.select_employee.addItems(items)
-
-    def setListDepartments(self, items):
+    def setListEmpoyees(self, department_id: int):
         self.select_employee.clear()
         cursor = self.conn_auth.cursor()
-        cursor.execute('''SELECT name FROM "Auth_LDAP_departments"''')
-        self.select_employee.addItems([item[0] for item in cursor.fetchall()])
+        cursor.execute('''SELECT id, name FROM "Auth_LDAP_customuser" WHERE department_id = %s''', (department_id,))
+        self.list_users.clear()
+        for id, name in cursor.fetchall():
+            self.list_users[name] = id
+            self.select_employee.addItem(name, id)
+            
+        cursor.close()
+
+    def onChangeDepartment(self, index):
+        self.setListEmpoyees(self.select_departments.itemData(index))
+        
+    def getDefaultData(self):
+        settings = QSettings("Matrix", "Settings")
+        self.browserPath.setText(settings.value("browserPath", ""))
+
+        cursor_matrix = self.conn_matrix.cursor()
+        cursor_matrix.execute('''SELECT * FROM "KingMatrixAPI_systems"''')
+
+        self.list_systems = {row[1]: {'id': row[0], 'name': row[1], 'parent': row[2]} for row in cursor_matrix.fetchall()}
+        cursor_matrix.close()
+
+        self.select_employee.clear()
+        cursor_auth = self.conn_auth.cursor()
+        cursor_auth.execute('''SELECT id, name FROM "Auth_LDAP_departments"''')
+        for id, name in cursor_auth.fetchall():
+            self.select_departments.addItem(name, id)
+        cursor_auth.close()
+        
+    def clear(self):
+        self.model.removeRows(0, self.model.rowCount())
+
+    def addLogs(self, code, title_args = [""], discription=""):
+        msg = MESSAGES[code]
+        now = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        self.model.add_data([now, msg['type_msg'], msg['title'].format(*title_args), discription])
 
     def get_data_tree(self):
-        employee = self.select_employee.currentText()
-        data_tree = self.request(names_list)
-        self.model.setup_data(data_tree, [employee])
+        if self.select_departments.currentIndex() == -1:
+            self.show_messagebox("err", "Ошибка запроса", "Не выбран ни один отедел!") 
+            return
+        if self.select_employee.currentIndex() == -1:
+            if not self.show_messagebox("info", "Подтвердите действие", "Сотрудник не выбран, запрос данных будет производится по каждому сотруднику отдела.", True):
+                return
+            list_users = [self.select_employee.itemText(i) for i in range(self.select_employee.count())]
+        else:
+            list_users = [self.select_employee.currentText()]
+        if not any([self.checker_poib.isChecked(), self.checker_axiok.isChecked(), self.checker_eis.isChecked()]):
+            if not self.show_messagebox("info", "Подтвердите действие", "Не выбрана ни одна подсистема. Поиск будет производится по всем имеющимся.", True):
+                return
+            list_systems = ['SOBI', 'AXIOK', 'EIS']
+        else:
+            list_systems = [system for system, checkbox in [('SOBI', self.checker_poib), ('AXIOK', self.checker_axiok), ('EIS', self.checker_eis)] if checkbox.isChecked()]
 
-    def retranslateUi(self, MainWindow):
-        _translate = QtCore.QCoreApplication.translate
-        MainWindow.setWindowTitle(_translate("MainWindow", "Тестовый пример"))
-        self.select_departments.setPlaceholderText(_translate("MainWindow", "Выберите отдел"))
-        self.select_employee.setPlaceholderText(_translate("MainWindow", "Выберите сотрудника"))
-        self.checker_poib.setText(_translate("MainWindow", "ПОИБ СОБИ"))
-        self.checker_eis.setText(_translate("MainWindow", "ЕИС"))
-        self.checker_axiok.setText(_translate("MainWindow", "Аксиок Планирование"))
-        self.submit.setText(_translate("MainWindow", "Получить данные"))
-        self.clear.setText(_translate("MainWindow", "Очистить вывод"))
+        t1 = threading.Thread(target=self.process_logs, args=(list_systems, list_users))
+        t1.start()
+
+    def process_logs(self, list_systems, list_users):
+        for system_el in list_systems:
+            self.addLogs(202, [system_el], '')
+
+            next_is_data = False
+            for log in handler.start(list_users, system_el, self.browserPath.text()):
+                if next_is_data:
+                    self.restructurData(log)
+                elif log['code'] == 100:
+                    next_is_data = True
+                    self.addLogs(100, [system_el], '')
+                else:
+                    self.addLogs(log['code'], log.get('args', []), log.get('discription', ""))
+
+    def restructurData(self, data: dict):
+        counter = {'check': 0, 'create': 0, 'errors': 0}
+        for key in data:
+            counter['check'] += 1
+            try:
+                # добавление систем, при их отсутствии
+                if key not in self.list_systems:
+                    added_data = {'id': None,'name': key, 'parent': None}
+                    id_parent = None
+                    name_parent = data[key]['parent']
+                    if name_parent != None:
+                        id_parent = self.list_systems.get(name_parent, {}).get('id', None)
+                        if id_parent == None:
+                            id_parent = self.addNewSystem(name_parent)
+                            self.list_systems.update({name_parent: {'id': id_parent, 'name': name_parent, 'parent': None}})
+                        added_data['parent'] = id_parent
+                    
+                    added_data['id'] = self.addNewSystem(key, id_parent)
+                    self.list_systems.update({key: added_data})
+                # добавление роли пользователю
+                id_system = self.list_systems[key]['id']
+                counter['check'] -= 1
+                for role in data[key]['roles']:
+                    for user in data[key]['roles'][role]:
+                        counter['check'] += 1
+                        id_user = self.list_users[user]
+                        role_id = self.addRoles(id_system, id_user, role)
+                        if role_id:
+                            counter['create'] += 1
+            except Exception as e:
+                counter['errors'] += 1
+                self.addLogs(400, [key], str(e))
+        self.addLogs(201, [], f'Общее количество - {counter["check"]};Создано - {counter["create"]}; Ошибок - {counter["errors"]}')
+        self.conn_matrix.commit()
+
+
+    def addRoles(self, id_system, id_user, role):
+        cursor_matrix = self.conn_matrix.cursor()
+        cursor_matrix.execute('''
+                            INSERT INTO "KingMatrixAPI_roles" (system_id, "user", name) 
+                            SELECT %s, %s, %s
+                            WHERE NOT EXISTS (SELECT 1 FROM "KingMatrixAPI_roles" WHERE system_id = %s AND "user" = %s AND name = %s)
+                            RETURNING id''', (id_system, id_user, role, id_system, id_user, role))
+        data = cursor_matrix.fetchone()
+        cursor_matrix.close()
+        return data
+
+    def addNewSystem(self, system_name, id_parent=None):
+        cursor_matrix = self.conn_matrix.cursor()
+        cursor_matrix.execute('''INSERT INTO "KingMatrixAPI_systems" (name, parent_id) VALUES (%s, %s) RETURNING id''', (system_name, id_parent))
+        data = cursor_matrix.fetchone()
+        cursor_matrix.close()
+        return data
+
+
+    def show_messagebox(self, type_msg:str, title:str, text:str, cancel: bool = False): 
+        msg = QMessageBox() 
+        msg.setIcon(self.__types_msg[type_msg]) 
     
-    def __del__(self):
+        msg.setText(text) 
+        
+        msg.setWindowTitle(title) 
+        
+        msg.setStandardButtons(QMessageBox.Ok) 
+
+        if cancel:
+            msg.addButton(QMessageBox.Cancel)
+        
+        return msg.exec_() == QMessageBox.Ok 
+    
+    def closeEvent(self, event):
         self.conn_matrix.close()
         self.conn_auth.close()
-        
+        settings = QSettings("Matrix", "Settings")
+        settings.setValue("browserPath", self.browserPath.text())
+        event.accept()
+
 if __name__ == "__main__":
-    import sys
-    app = QtWidgets.QApplication(sys.argv)
-    handler = HandleSelfSignedCertificate()
-    MainWindow = QtWidgets.QMainWindow()
-    ui = Ui_MainWindow(handler.open_browser)
-    ui.setupUi(MainWindow)
-    ui.setListEmpoyees(names_list)
-    MainWindow.show()
+    app = QApplication(sys.argv)
+    handler = HandlerRoles()
+    ui = Ui(handler)
     sys.exit(app.exec_())
