@@ -23,6 +23,7 @@ MESSAGES = {
     401: {'type_msg': 'error', 'title': "Ошибка в получении данных пользователя!"},
     403: {'type_msg': 'error', 'title': "Запрос не может быть обработан."},
     404: {'type_msg': 'info', 'title': "Пользователь не найден в подсистеме."},
+    500: {'type_msg': 'error', 'title': "Системная ошибка."}
 }
 
 class MyModel(QStandardItemModel):

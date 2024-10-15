@@ -7,6 +7,8 @@ import urllib.parse
 from bs4 import BeautifulSoup as bs
 import requests
 import passwords
+import os
+from selenium.webdriver.chrome.service import Service
 
 class HandlerRoles():
     __routes = {
@@ -25,6 +27,7 @@ class HandlerRoles():
             }
         },
         'AXIOK': {
+            'OpenBrowser': False,
             'default_filter': {
                 'page': 1,
                 'start': 0,
@@ -41,9 +44,11 @@ class HandlerRoles():
                         "goog:loggingPrefs", {"performance": "ALL"}
                     )
         self.__options.add_argument('--auto-select-certificate')
+        self.__options.add_experimental_option("excludeSwitches", ["enable-logging"])
+        self.__chromedriver_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chromedriver.exe')
         # self.__options.binary_location = '/usr/bin/chromium-gost'
 
-        self.__routes['functions'] = {'SOBI': self.open_sobi, 'EIS': self.open_eis}
+        self.__routes['functions'] = {'SOBI': self.open_sobi, 'EIS': self.open_eis, 'AXIOK': self.open_axiok}
         
 
     
@@ -58,10 +63,15 @@ class HandlerRoles():
         self.__result_queue = Queue()
         self.__log_queue = Queue()
         self.__names = names
-        self.__options.binary_location = chromium_path
+        if self.__routes[system].get('OpenBrowser', True):
+            try:
+                self.__options.binary_location = chromium_path
 
-        self.__driver = webdriver.Chrome(options=self.__options)
-        self.__driver.set_window_size(800, 800)
+                self.__driver = webdriver.Chrome(service = Service(self.__chromedriver_path), options=self.__options)
+                self.__driver.set_window_size(800, 800)
+            except Exception as e:
+                yield {'code': 500, 'discription': str(e)}
+                return 
         t1 = threading.Thread(target=self.__routes['functions'][system], kwargs=self.__routes[system])
         t1.start()
         
@@ -83,12 +93,19 @@ class HandlerRoles():
         response = json.loads(response_json)
         return response
     
-    def open_axiok(self, default_filter):
+    def open_axiok(self, default_filter, **kwards) -> None:
+        default_filter = {
+                'page': 1,
+                'start': 0,
+                'limit': 1000,
+                'records': '[]'
+            }
         s = requests.Session()
         server = passwords.AXIOK['server']
         try:
             s.post(f"{server}/login", data=passwords.AXIOK['auth'])
         except Exception as e:
+            print("ERR", e)
             self.__log_queue.put({'code': 403, 'discription': str(e)})
             return
         
@@ -111,12 +128,15 @@ class HandlerRoles():
                     },
                     **default_filter
                 }
-                data = s.post(f"{server}/action/Operator/ListByOrganization", params={'_dc': current_datetime}, data=urllib.parse.urlencode(user_filter)).json()['data']
+
+                data = s.post(f"{server}/action/Operator/ListByOrganization", params={'_dc': current_datetime}, json=user_filter).json()['data']
+                
                 if len(data):
                     roles_filter = {'objectId': data[0]['Id'], **default_filter}
-                    data = s.post(f"{server}/action/Operator/GetOperatorRoles", params={'_dc': current_datetime}, data=urllib.parse.urlencode(roles_filter)).json()['data']
+                    data = s.post(f"{server}/action/Operator/GetOperatorRoles", params={'_dc': current_datetime}, json=roles_filter).json()['data']
                     for role in data:
-                        link_roles.append(role['Name'])    
+                        link_roles.setdefault(role['Name'], [])  
+                        link_roles[role['Name']].append(name)
                     self.__log_queue.put({'code': 200})            
                 else:
                     self.__log_queue.put({'code': 404})
@@ -125,10 +145,9 @@ class HandlerRoles():
                 continue
 
         self.__log_queue.put({'code': 100})
-        self.__driver.quit()
         self.__result_queue.put(roles)
     
-    def open_eis(self, main_url: str, users_url: str, users_search_url: str, cookies: str) -> None:
+    def open_eis(self, main_url: str, users_url: str, users_search_url: str, cookies: str, **kwards) -> None:
         try:
             self.__driver.get(main_url)
             self.__await_load()
@@ -205,7 +224,7 @@ class HandlerRoles():
         self.__driver.quit()
         self.__result_queue.put(roles)
 
-    def open_sobi(self, main_url: str, id_url: str, roles_url: str) -> None:
+    def open_sobi(self, main_url: str, id_url: str, roles_url: str, **kwards) -> None:
         try:
             self.__driver.get(main_url)
             self.__await_load()
