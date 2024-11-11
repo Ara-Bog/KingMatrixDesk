@@ -94,6 +94,9 @@
        <property name="text">
         <string>Выберите отдел *</string>
        </property>
+       <property name="buddy">
+        <cstring>select_departments</cstring>
+       </property>
       </widget>
      </item>
      <item row="0" column="1">
@@ -106,6 +109,9 @@
        </property>
        <property name="text">
         <string>Выберите сотрудника</string>
+       </property>
+       <property name="buddy">
+        <cstring>select_employee</cstring>
        </property>
       </widget>
      </item>
@@ -253,9 +259,25 @@
        <property name="text">
         <string>Путь к браузеру</string>
        </property>
+       <property name="buddy">
+        <cstring>browserPath</cstring>
+       </property>
       </widget>
      </item>
     </layout>
+   </widget>
+   <widget class="QPushButton" name="load_excel">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>150</y>
+      <width>111</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Загрузка EXCEL</string>
+    </property>
    </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
@@ -268,7 +290,44 @@
     </rect>
    </property>
   </widget>
+  <action name="actionqq">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>qq</string>
+   </property>
+  </action>
  </widget>
+ <tabstops>
+  <tabstop>browserPath</tabstop>
+  <tabstop>fileDialog</tabstop>
+  <tabstop>select_departments</tabstop>
+  <tabstop>select_employee</tabstop>
+  <tabstop>checker_poib</tabstop>
+  <tabstop>checker_eis</tabstop>
+  <tabstop>checker_axiok</tabstop>
+  <tabstop>submit</tabstop>
+  <tabstop>clear_logs</tabstop>
+  <tabstop>outView</tabstop>
+ </tabstops>
  <resources/>
- <connections/>
+ <connections>
+  <connection>
+   <sender>clear_logs</sender>
+   <signal>clicked()</signal>
+   <receiver>outView</receiver>
+   <slot>reset()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>537</x>
+     <y>185</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>521</x>
+     <y>231</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
 </ui>

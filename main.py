@@ -1,7 +1,7 @@
 from PyQt5 import uic
 from PyQt5.QtCore import QSettings
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
-from PyQt5.QtWidgets import QMessageBox, QFileDialog, QMainWindow, QApplication
+from PyQt5.QtWidgets import QMessageBox, QFileDialog, QMainWindow, QApplication, QDialog
 from psycopg2 import connect
 import sys
 from datetime import datetime
@@ -47,32 +47,25 @@ class MyModel(QStandardItemModel):
             
         self.insertRow(0, row_msg)
 
-# # Для динамического изменения ширины колонок таблицы
-# class ItemWordWrap(QStyledItemDelegate):
-#     def __init__(self, parent=None):
-#         QStyledItemDelegate.__init__(self, parent)
-#         self.parent = parent
 
-#     def sizeHint(self, option, index):
-#         text = index.model().data(index)
-#         document = QTextDocument()
-#         document.setHtml(text) 
-#         width = index.model().data(index, QtCore.Qt.UserRole+1)
-#         if not width:
-#             width = 20
-#         document.setTextWidth(width) 
-#         return QtCore.QSize(math.ceil(document.idealWidth() + 10),  math.ceil(document.size().height()))    
+class ExcelLoader(QDialog):
+    __script_ASFK = passwords.SCRIPTS['ASFK']
 
-#     def paint(self, painter, option, index):
-#         text = index.model().data(index) 
-#         document = QTextDocument()
-#         document.setHtml(text)       
-#         document.setTextWidth(option.rect.width())
-#         index.model().setData(index, option.rect.width(), QtCore.Qt.UserRole+1)
-#         painter.save() 
-#         painter.translate(option.rect.x(), option.rect.y()) 
-#         document.drawContents(painter)
-#         painter.restore()
+    def __init__(self):
+        super(ExcelLoader, self).__init__()
+
+        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'selectExcel.ui')
+        uic.loadUi(ui_file, self)
+        self.fileDialog.clicked.connect(self.openFileDialog)
+        self.copy_script.clicked.connect(self.copyScript)
+
+    def openFileDialog(self):
+        filePath, _ = QFileDialog.getOpenFileName(self, "Выбор EXCEL файла", self.browserPath.text(), "Excel Files (*.xls *.xlsx)")
+        if filePath:
+            self.browserPath.setText(filePath)
+
+    def copyScript(self):
+        print(self.selectSystem.checkedButton())
 
 class Ui(QMainWindow):
     __types_msg = {
@@ -90,6 +83,8 @@ class Ui(QMainWindow):
             database='auth_db', **passwords.DB
             # database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
         )
+
+        self.__excel_loader = ExcelLoader()
         
         self.list_systems = {}
         self.list_users = {}
@@ -101,6 +96,7 @@ class Ui(QMainWindow):
         self.model = MyModel()
         self.outView.setModel(self.model)
         self.clear_logs.clicked.connect(self.clear)
+        self.load_excel.clicked.connect(self.loadExcel)
         self.fileDialog.clicked.connect(self.openFileDialog)
         # self.outView.setItemDelegate(ItemWordWrap(self.outView))
         self.handler = handler
@@ -122,6 +118,13 @@ class Ui(QMainWindow):
             self.select_employee.addItem(name, id)
             
         cursor.close()
+
+    def loadExcel(self):
+        self.__excel_loader.show()
+
+    def onChangeEmployee(self, text):
+        if text == '':
+            self.combobox.setCurrentIndex(-1)
 
     def onChangeDepartment(self, index):
         self.setListEmpoyees(self.select_departments.itemData(index))
@@ -155,7 +158,9 @@ class Ui(QMainWindow):
         if self.select_departments.currentIndex() == -1:
             self.show_messagebox("err", "Ошибка запроса", "Не выбран ни один отедел!") 
             return
+        print("ERR", self.select_employee.currentIndex())
         if self.select_employee.currentIndex() == -1:
+            print("ERR", self.select_employee.currentIndex())
             if not self.show_messagebox("info", "Подтвердите действие", "Сотрудник не выбран, запрос данных будет производится по каждому сотруднику отдела.", True):
                 return
             list_users = [self.select_employee.itemText(i) for i in range(self.select_employee.count())]
