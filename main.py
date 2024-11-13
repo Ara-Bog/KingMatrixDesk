@@ -1,7 +1,7 @@
 from PyQt5 import uic
-from PyQt5.QtCore import QSettings
+from PyQt5.QtCore import Qt, QSettings, pyqtSignal
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
-from PyQt5.QtWidgets import QMessageBox, QFileDialog, QMainWindow, QApplication, QDialog
+from PyQt5.QtWidgets import QMessageBox, QFileDialog, QMainWindow, QApplication, QDialog, QDialogButtonBox
 from psycopg2 import connect
 import sys
 from datetime import datetime
@@ -11,6 +11,10 @@ from handler import HandlerRoles
 import sys
 import os
 import passwords
+import re
+from xlrd import open_workbook
+
+from PyQt5.QtCore import QTimer
 
 'Шаблоны логов'
 MESSAGES = {
@@ -25,6 +29,28 @@ MESSAGES = {
     404: {'type_msg': 'info', 'title': "Пользователь не найден в подсистеме."},
     500: {'type_msg': 'error', 'title': "Системная ошибка."}
 }
+
+TYPES_MSGS = {
+    "info": QMessageBox.Information,
+    "err": QMessageBox.Critical,
+    "warn": QMessageBox.Warning
+}
+
+
+def show_messagebox(type_msg:str, title:str, text:str, cancel: bool = False): 
+    msg = QMessageBox() 
+    msg.setIcon(TYPES_MSGS[type_msg]) 
+
+    msg.setText(text) 
+    
+    msg.setWindowTitle(title) 
+    
+    msg.setStandardButtons(QMessageBox.Ok) 
+
+    if cancel:
+        msg.addButton(QMessageBox.Cancel)
+    
+    return msg.exec_() == QMessageBox.Ok
 
 class MyModel(QStandardItemModel):
     '''Модель для вывода логов'''
@@ -48,8 +74,62 @@ class MyModel(QStandardItemModel):
         self.insertRow(0, row_msg)
 
 
+class LoaderView(QDialog):
+    loadingPaused = pyqtSignal(bool)
+    closeLoading = pyqtSignal()
+
+    def __init__(self):
+        super(LoaderView, self).__init__()
+
+        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'loadView.ui')
+        uic.loadUi(ui_file, self)
+        self.user_initiated_close = True
+
+    def increase(self):
+        self.progressBar.setValue(self.progressBar.value() + 1)
+
+        if self.progressBar.value() == self.progressBar.maximum():
+            show_messagebox("info", "Загрузка EXCEL", "Все строки обработаны.")
+            self.reset()
+
+    def start(self, max_val):
+        self.progressBar.setValue(0)
+        self.progressBar.setMaximum(max_val)
+
+    def reset(self):
+        self.progressBar.setValue(0)
+        self.progressBar.setMaximum(0)
+        self.close()
+        
+    def closeEvent(self, event):
+        if self.user_initiated_close:
+            self.loadingPaused.emit(True)
+            
+            reply = show_messagebox("warn", "Подтверждение", "Вы уверены, что хотите отменить загрузку?", True)
+
+            if reply:
+                self.closeLoading.emit() 
+                event.accept() 
+            else:
+                self.loadingPaused.emit(False)
+                event.ignore()
+        else:
+            event.accept()  
+
+    def reject(self):
+        self.user_initiated_close = False 
+        super(LoaderView, self).reject() 
+
+    def close(self):
+        self.user_initiated_close = False 
+        super(LoaderView, self).close() 
+
 class ExcelLoader(QDialog):
+    callbackData = pyqtSignal(dict)
+    callbackLogs = pyqtSignal(int, str)
+
     __script_ASFK = passwords.SCRIPTS['ASFK']
+    __script_SUFD = passwords.SCRIPTS['SUFD']
 
     def __init__(self):
         super(ExcelLoader, self).__init__()
@@ -59,34 +139,132 @@ class ExcelLoader(QDialog):
         self.fileDialog.clicked.connect(self.openFileDialog)
         self.copy_script.clicked.connect(self.copyScript)
 
+        self.loading = False
+        self.loadingPause = False
+
+        self.__loader = LoaderView()
+        self.__loader.loadingPaused.connect(self.pauseLoading) 
+        self.__loader.closeLoading.connect(self.closeLoading) 
+
+        self.output_data = None
+        self.list_users = set()
+        self.select_system = None
+        self.select_file = None
+        self.current_iteration = 0
+        self.total_iterations = 0
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                filePath = url.toLocalFile()
+                self.excelPath.setText(filePath)
+
+    def pauseLoading(self, status):
+        self.loadingPause = status
+        if not status: self.readExcel()
+
+    def closeLoading(self):
+        self.output_data = None
+        self.list_users = set()
+        self.select_system = None
+        self.select_sheet_file = None
+        self.current_iteration = -1
+        self.total_iterations = 0
+        self.loading = False
+
     def openFileDialog(self):
-        filePath, _ = QFileDialog.getOpenFileName(self, "Выбор EXCEL файла", self.browserPath.text(), "Excel Files (*.xls *.xlsx)")
+        filePath, _ = QFileDialog.getOpenFileName(self, "Выбор EXCEL файла", self.excelPath.text(), "Excel Files (*.xls)")
         if filePath:
-            self.browserPath.setText(filePath)
+            self.excelPath.setText(filePath)
 
     def copyScript(self):
-        print(self.selectSystem.checkedButton())
+        clipboard = QApplication.clipboard()
+
+        text = "Скрипт скопирован в буфер обмена"
+        buffer = ''
+        if self.asfk_check.isChecked():
+            buffer = self.__script_ASFK
+        elif self.sufd_check.isChecked():
+            buffer = self.__script_SUFD
+        else:
+            text = "Не выбрана ни одна подсистема"
+
+        if buffer:
+            if self.minimize_script.isChecked():
+                buffer = buffer.replace('\n', '')
+                buffer = re.sub(r'\t+', ' ', buffer)
+                buffer = re.sub(r'\s+', ' ', buffer)
+            clipboard.setText(buffer)
+        
+        show_messagebox("info" if buffer else 'warn', "Копирование скрипта", text)
+    
+    def accept(self):
+        if not self.asfk_check.isChecked() and not self.sufd_check.isChecked():
+            show_messagebox("warn", "Загрузка EXCEL", "Не выбрана ни одна подсистема.")
+            return
+        if not os.path.exists(self.excelPath.text()):
+            show_messagebox("err", "Загрузка EXCEL", "Неверный путь к файлу.")
+            return
+        
+        try:
+            self.select_system = 'АСФК' if self.asfk_check.isChecked() else 'СУФД' # ПОМЕНЯТЬ!!!
+            self.output_data = {self.select_system: {'parent': None, 'roles': {}}}
+            self.select_sheet_file = open_workbook(self.excelPath.text()).sheet_by_index(0)
+            self.current_iteration = 1
+            self.total_iterations = self.select_sheet_file.nrows
+            self.__loader.start(self.select_sheet_file.nrows - 1)
+            self.loading = True
+            self.loadingPause = False
+            self.readExcel() 
+            self.__loader.show()
+        except Exception as e:
+            self.callbackLogs.emit(401, str(e))
+            show_messagebox("err", "Ошибка загрузки", str(e))
+
+    def readExcel(self):
+        if not self.loading or self.loadingPause: return 
+        if self.current_iteration < self.total_iterations:
+            try:
+                user = self.select_sheet_file.cell_value(self.current_iteration, 0)
+                role_list = self.select_sheet_file.cell_value(self.current_iteration, 2).split('|')
+                for role in role_list:
+                    if role:
+                        self.output_data[self.select_system]['roles'].setdefault(role, [])
+                        self.output_data[self.select_system]['roles'][role].append(user)
+                self.list_users.add(user)
+                self.__loader.increase()
+                self.current_iteration += 1
+                QTimer.singleShot(0, self.readExcel)
+            except Exception as e:
+                self.callbackLogs.emit(401, str(e))
+                show_messagebox("err", "Ошибка загрузки", str(e))
+                self.closeLoading()
+                self.__loader.reset()
+        else:
+            self.callbackData.emit({'data': self.output_data, 'users': self.list_users})
+            self.closeLoading()
+        
 
 class Ui(QMainWindow):
-    __types_msg = {
-        "info": QMessageBox.Information,
-        "err": QMessageBox.Critical,
-        "warn": QMessageBox.Warning
-    }
     def __init__(self, handles: dict):
         super(Ui, self).__init__()
         self.conn_matrix = connect(
-            database='matrix', **passwords.DB
-            # database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
+            # database='matrix', **passwords.DB
+            database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
         )
         self.conn_auth = connect(
-            database='auth_db', **passwords.DB
-            # database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
+            # database='auth_db', **passwords.DB
+            database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
         )
 
         self.__excel_loader = ExcelLoader()
-        
-        self.list_systems = {}
+        self.__excel_loader.callbackData.connect(self.loadExcel) 
+        self.__excel_loader.callbackLogs.connect(lambda code, err: self.addLogs(code, [''], err)) 
+
         self.list_users = {}
         ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'MainWindow.ui')
         uic.loadUi(ui_file, self)
@@ -95,8 +273,8 @@ class Ui(QMainWindow):
         self.getDefaultData()
         self.model = MyModel()
         self.outView.setModel(self.model)
-        self.clear_logs.clicked.connect(self.clear)
-        self.load_excel.clicked.connect(self.loadExcel)
+        self.clear_logs.clicked.connect(lambda: self.model.removeRows(0, self.model.rowCount()))
+        self.load_excel.clicked.connect(lambda: self.__excel_loader.show())
         self.fileDialog.clicked.connect(self.openFileDialog)
         # self.outView.setItemDelegate(ItemWordWrap(self.outView))
         self.handler = handler
@@ -119,8 +297,23 @@ class Ui(QMainWindow):
             
         cursor.close()
 
-    def loadExcel(self):
-        self.__excel_loader.show()
+    def loadExcel(self, data):
+        roles = data['data'] # its dict
+        users = data['users'] # its set
+
+        user_list = list(users)
+
+        placeholders = ', '.join(['%s'] * len(user_list))
+
+        cursor = self.conn_auth.cursor()
+        cursor.execute(f'''SELECT id, lower(replace(name, ' ', '')) as name FROM "Auth_LDAP_customuser" WHERE lower(replace(name, ' ', '')) IN  ({placeholders})''', user_list)
+        self.list_users.clear()
+        for id, name in cursor.fetchall():
+            self.list_users[name] = id
+        print("QWE", self.list_users)
+
+        t1 = threading.Thread(target=self.restructurData, args=(roles,))
+        t1.start()
 
     def onChangeEmployee(self, text):
         if text == '':
@@ -133,21 +326,12 @@ class Ui(QMainWindow):
         settings = QSettings("Matrix", "Settings")
         self.browserPath.setText(settings.value("browserPath", ""))
 
-        cursor_matrix = self.conn_matrix.cursor()
-        cursor_matrix.execute('''SELECT * FROM "KingMatrixAPI_systems"''')
-
-        self.list_systems = {row[1]: {'id': row[0], 'name': row[1], 'parent': row[2]} for row in cursor_matrix.fetchall()}
-        cursor_matrix.close()
-
         self.select_employee.clear()
         cursor_auth = self.conn_auth.cursor()
         cursor_auth.execute('''SELECT id, name FROM "Auth_LDAP_departments"''')
         for id, name in cursor_auth.fetchall():
             self.select_departments.addItem(name, id)
         cursor_auth.close()
-        
-    def clear(self):
-        self.model.removeRows(0, self.model.rowCount())
 
     def addLogs(self, code, title_args = [""], discription=""):
         msg = MESSAGES[code]
@@ -156,18 +340,16 @@ class Ui(QMainWindow):
 
     def get_data_tree(self):
         if self.select_departments.currentIndex() == -1:
-            self.show_messagebox("err", "Ошибка запроса", "Не выбран ни один отедел!") 
+            show_messagebox("err", "Ошибка запроса", "Не выбран ни один отедел!") 
             return
-        print("ERR", self.select_employee.currentIndex())
         if self.select_employee.currentIndex() == -1:
-            print("ERR", self.select_employee.currentIndex())
-            if not self.show_messagebox("info", "Подтвердите действие", "Сотрудник не выбран, запрос данных будет производится по каждому сотруднику отдела.", True):
+            if not show_messagebox("info", "Подтвердите действие", "Сотрудник не выбран, запрос данных будет производится по каждому сотруднику отдела.", True):
                 return
             list_users = [self.select_employee.itemText(i) for i in range(self.select_employee.count())]
         else:
             list_users = [self.select_employee.currentText()]
         if not any([self.checker_poib.isChecked(), self.checker_axiok.isChecked(), self.checker_eis.isChecked()]):
-            if not self.show_messagebox("info", "Подтвердите действие", "Не выбрана ни одна подсистема. Поиск будет производится по всем имеющимся.", True):
+            if not show_messagebox("info", "Подтвердите действие", "Не выбрана ни одна подсистема. Поиск будет производится по всем имеющимся.", True):
                 return
             list_systems = ['SOBI', 'AXIOK', 'EIS']
         else:
@@ -192,32 +374,37 @@ class Ui(QMainWindow):
 
     def restructurData(self, data: dict):
         counter = {'check': 0, 'create': 0, 'errors': 0}
+        list_systems = {}
         for key in data:
             counter['check'] += 1
             try:
-                # добавление систем, при их отсутствии
-                if key not in self.list_systems:
-                    added_data = {'id': None,'name': key, 'parent': None}
-                    id_parent = None
-                    name_parent = data[key]['parent']
-                    if name_parent != None:
-                        id_parent = self.list_systems.get(name_parent, {}).get('id', None)
-                        if id_parent == None:
-                            id_parent = self.addNewSystem(name_parent)
-                            self.list_systems.update({name_parent: {'id': id_parent, 'name': name_parent, 'parent': None}})
-                        added_data['parent'] = id_parent
-                    
-                    added_data['id'] = self.addNewSystem(key, id_parent)
-                    self.list_systems.update({key: added_data})
+                added_data = {'id': None, 'name': key, 'parent': None}
+                id_parent = None
+                name_parent = data[key]['parent']
+                if name_parent != None:
+                    id_parent = list_systems.get(name_parent, {}).get('id', None)
+                    if id_parent == None:
+                        id_parent = self.addNewSystem(name_parent)
+                        list_systems.update({name_parent: {'id': id_parent, 'name': name_parent, 'parent': None}})
+                    added_data['parent'] = id_parent
+                
+                added_data['id'] = self.addNewSystem(key, id_parent)
+                list_systems.update({key: added_data})
+
                 # добавление роли пользователю
-                id_system = self.list_systems[key]['id']
+                id_system = list_systems[key]['id']
                 counter['check'] -= 1
                 for role in data[key]['roles']:
+                    role_id = self.addNewRole(id_system, role)
+
                     for user in data[key]['roles'][role]:
                         counter['check'] += 1
-                        id_user = self.list_users[user]
-                        role_id = self.addRoles(id_system, id_user, role)
-                        if role_id:
+                        id_user = self.list_users.get(user, -1)
+                        if id_user == -1:
+                            counter['errors'] += 1
+                            continue
+                        relation = self.addUserRoles(id_user, role_id)
+                        if relation:
                             counter['create'] += 1
             except Exception as e:
                 counter['errors'] += 1
@@ -225,14 +412,24 @@ class Ui(QMainWindow):
         self.addLogs(201, [], f'Общее количество - {counter["check"]};Создано - {counter["create"]}; Ошибок - {counter["errors"]}')
         self.conn_matrix.commit()
 
-
-    def addRoles(self, id_system, id_user, role):
+    def addUserRoles(self, id_user, id_role):
         cursor_matrix = self.conn_matrix.cursor()
         cursor_matrix.execute('''
-                            INSERT INTO "KingMatrixAPI_roles" (system_id, "user", name) 
-                            SELECT %s, %s, %s
-                            WHERE NOT EXISTS (SELECT 1 FROM "KingMatrixAPI_roles" WHERE system_id = %s AND "user" = %s AND name = %s)
-                            RETURNING id''', (id_system, id_user, role, id_system, id_user, role))
+                            INSERT INTO "KingMatrixAPI_userroles" ("user", role_id) 
+                            SELECT %s, %s
+                            WHERE NOT EXISTS (SELECT 1 FROM "KingMatrixAPI_userroles" WHERE "user" = %s AND role_id = %s)
+                            RETURNING id''', (id_user, id_role, id_user, id_role))
+        data = cursor_matrix.fetchone()
+        cursor_matrix.close()
+        return data
+
+    def addNewRole(self, id_system, role):
+        cursor_matrix = self.conn_matrix.cursor()
+        cursor_matrix.execute('''
+                            INSERT INTO "KingMatrixAPI_roles" (system_id, name) 
+                            SELECT %s, %s
+                            WHERE NOT EXISTS (SELECT 1 FROM "KingMatrixAPI_roles" WHERE system_id = %s AND name = %s)
+                            RETURNING id''', (id_system, role, id_system, role))
         data = cursor_matrix.fetchone()
         cursor_matrix.close()
         return data
@@ -243,22 +440,6 @@ class Ui(QMainWindow):
         data = cursor_matrix.fetchone()
         cursor_matrix.close()
         return data
-
-
-    def show_messagebox(self, type_msg:str, title:str, text:str, cancel: bool = False): 
-        msg = QMessageBox() 
-        msg.setIcon(self.__types_msg[type_msg]) 
-    
-        msg.setText(text) 
-        
-        msg.setWindowTitle(title) 
-        
-        msg.setStandardButtons(QMessageBox.Ok) 
-
-        if cancel:
-            msg.addButton(QMessageBox.Cancel)
-        
-        return msg.exec_() == QMessageBox.Ok 
     
     def closeEvent(self, event):
         self.conn_matrix.close()

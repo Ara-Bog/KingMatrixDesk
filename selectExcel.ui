@@ -96,14 +96,14 @@
     </property>
     <layout class="QVBoxLayout" name="verticalLayout">
      <item>
-      <widget class="QRadioButton" name="asfkCheck">
+      <widget class="QRadioButton" name="asfk_check">
        <property name="text">
         <string>АСФК</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QRadioButton" name="sufdCheck">
+      <widget class="QRadioButton" name="sufd_check">
        <property name="text">
         <string>СУФД</string>
        </property>
@@ -147,7 +147,7 @@
     <bool>false</bool>
    </property>
   </widget>
-  <widget class="QCheckBox" name="minimiza_script">
+  <widget class="QCheckBox" name="minimize_script">
    <property name="geometry">
     <rect>
      <x>180</x>
