@@ -73,7 +73,6 @@ class MyModel(QStandardItemModel):
             
         self.insertRow(0, row_msg)
 
-
 class LoaderView(QDialog):
     loadingPaused = pyqtSignal(bool)
     closeLoading = pyqtSignal()
@@ -248,7 +247,6 @@ class ExcelLoader(QDialog):
             self.callbackData.emit({'data': self.output_data, 'users': self.list_users})
             self.closeLoading()
         
-
 class Ui(QMainWindow):
     def __init__(self, handles: dict):
         super(Ui, self).__init__()
@@ -310,7 +308,6 @@ class Ui(QMainWindow):
         self.list_users.clear()
         for id, name in cursor.fetchall():
             self.list_users[name] = id
-        print("QWE", self.list_users)
 
         t1 = threading.Thread(target=self.restructurData, args=(roles,))
         t1.start()
@@ -373,11 +370,15 @@ class Ui(QMainWindow):
                     self.addLogs(log['code'], log.get('args', []), log.get('discription', ""))
 
     def restructurData(self, data: dict):
-        counter = {'check': 0, 'create': 0, 'errors': 0}
+        counter = {'check': 0, 'create': 0, 'errors': 0, 'undefined': 0}
         list_systems = {}
+        self.setDeleteFlag()
+
         for key in data:
             counter['check'] += 1
-            try:
+            updated_users = set()
+            # try:
+            if True:
                 added_data = {'id': None, 'name': key, 'parent': None}
                 id_parent = None
                 name_parent = data[key]['parent']
@@ -401,45 +402,121 @@ class Ui(QMainWindow):
                         counter['check'] += 1
                         id_user = self.list_users.get(user, -1)
                         if id_user == -1:
-                            counter['errors'] += 1
+                            counter['undefined'] += 1
                             continue
+                        updated_users.add(id_user)
                         relation = self.addUserRoles(id_user, role_id)
                         if relation:
                             counter['create'] += 1
-            except Exception as e:
-                counter['errors'] += 1
-                self.addLogs(400, [key], str(e))
-        self.addLogs(201, [], f'Общее количество - {counter["check"]};Создано - {counter["create"]}; Ошибок - {counter["errors"]}')
+                self.addLogsMatrix(updated_users, added_data['id'])
+            # except Exception as e:
+            #     counter['errors'] += 1
+            #     self.addLogs(400, [key], str(e))
+        count_delete = self.deleteInactiveRoles()
+        self.addLogs(201, [], f'Общее количество - {counter["check"]}; Создано - {counter["create"]}; Ошибок - {counter["errors"]}; Не найден пользователь - {counter["undefined"]}; Удалено полномочий - {count_delete}')
         self.conn_matrix.commit()
 
-    def addUserRoles(self, id_user, id_role):
+    def deleteInactiveRoles(self):
         cursor_matrix = self.conn_matrix.cursor()
         cursor_matrix.execute('''
-                            INSERT INTO "KingMatrixAPI_userroles" ("user", role_id) 
-                            SELECT %s, %s
-                            WHERE NOT EXISTS (SELECT 1 FROM "KingMatrixAPI_userroles" WHERE "user" = %s AND role_id = %s)
-                            RETURNING id''', (id_user, id_role, id_user, id_role))
-        data = cursor_matrix.fetchone()
+            DELETE FROM "KingMatrixAPI_userroles" 
+            WHERE "isChecked" = FALSE''', ())
+
+        data = cursor_matrix.rowcount
         cursor_matrix.close()
         return data
+
+    def setDeleteFlag(self):
+        cursor_matrix = self.conn_matrix.cursor()
+        cursor_matrix.execute('''
+            UPDATE "KingMatrixAPI_userroles" 
+            SET "isChecked" = FALSE 
+            WHERE "user" IN %s
+        ''', (tuple(self.list_users.values()),))
+        
+        cursor_matrix.close()
+
+    def addLogsMatrix(self, users, system):
+        with self.conn_matrix.cursor() as cursor_matrix:
+            cursor_matrix.execute('''
+                DELETE FROM "KingMatrixAPI_logupdates"  
+                WHERE "user" = ANY(%s::int[])  AND system_id = %s
+            ''', (list(users), system))
+            cursor_matrix.execute('''
+                INSERT INTO "KingMatrixAPI_logupdates" ("user", system_id, date_msg) 
+                SELECT unnest(%s::int[]), %s, NOW()
+            ''', (list(users), system))
+            data = cursor_matrix.rowcount
+
+        return data
+
+    def addUserRoles(self, id_user, id_role):
+        with self.conn_matrix.cursor() as cursor_matrix:
+            cursor_matrix.execute('''
+                SELECT id FROM "KingMatrixAPI_userroles" WHERE "user" = %s AND role_id = %s
+            ''', (id_user, id_role))
+                
+            data = cursor_matrix.fetchone()
+            if data:
+                cursor_matrix.execute('''
+                    UPDATE "KingMatrixAPI_userroles" 
+                    SET "isChecked" = TRUE 
+                    WHERE "id" = %s
+                ''', (data))
+                return None
+            else:
+                cursor_matrix.execute('''
+                    INSERT INTO "KingMatrixAPI_userroles" ("user", role_id, "isChecked") 
+                    VALUES (%s, %s, %s)
+                    RETURNING id
+                ''', (id_user, id_role, True))
+                
+                data = cursor_matrix.fetchone()
+            return data[0]
 
     def addNewRole(self, id_system, role):
-        cursor_matrix = self.conn_matrix.cursor()
-        cursor_matrix.execute('''
-                            INSERT INTO "KingMatrixAPI_roles" (system_id, name) 
-                            SELECT %s, %s
-                            WHERE NOT EXISTS (SELECT 1 FROM "KingMatrixAPI_roles" WHERE system_id = %s AND name = %s)
-                            RETURNING id''', (id_system, role, id_system, role))
-        data = cursor_matrix.fetchone()
-        cursor_matrix.close()
-        return data
+        with self.conn_matrix.cursor() as cursor_matrix:
+            
+            # Сначала проверяем, существует ли роль
+            cursor_matrix.execute('''
+                SELECT id FROM "KingMatrixAPI_roles" WHERE system_id = %s AND name = %s
+            ''', (id_system, role))
+            
+            data = cursor_matrix.fetchone()
+            
+            if data is None:
+                cursor_matrix.execute('''
+                    INSERT INTO "KingMatrixAPI_roles" (system_id, name) 
+                    VALUES (%s, %s)
+                    RETURNING id
+                ''', (id_system, role))
+                data = cursor_matrix.fetchone()
+
+        return data[0]
 
     def addNewSystem(self, system_name, id_parent=None):
-        cursor_matrix = self.conn_matrix.cursor()
-        cursor_matrix.execute('''INSERT INTO "KingMatrixAPI_systems" (name, parent_id) VALUES (%s, %s) RETURNING id''', (system_name, id_parent))
-        data = cursor_matrix.fetchone()
-        cursor_matrix.close()
-        return data
+        with self.conn_matrix.cursor() as cursor_matrix:
+            # Сначала проверяем, существует ли система
+            if id_parent:
+                cursor_matrix.execute('''
+                    SELECT id FROM "KingMatrixAPI_systems" WHERE name = %s AND parent_id = %s
+                ''', (system_name, id_parent))
+            else:
+                cursor_matrix.execute('''
+                    SELECT id FROM "KingMatrixAPI_systems" WHERE name = %s AND parent_id IS NULL
+                ''', (system_name,))
+            
+            data = cursor_matrix.fetchone()
+            if data is None:
+                cursor_matrix.execute('''
+                    INSERT INTO "KingMatrixAPI_systems" (name, parent_id) 
+                    VALUES (%s, %s)
+                    RETURNING id
+                ''', (system_name, id_parent))
+                
+                data = cursor_matrix.fetchone()
+        
+        return data[0]
     
     def closeEvent(self, event):
         self.conn_matrix.close()
