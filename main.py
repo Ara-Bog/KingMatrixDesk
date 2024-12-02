@@ -264,6 +264,7 @@ class Ui(QMainWindow):
         self.__excel_loader.callbackLogs.connect(lambda code, err: self.addLogs(code, [''], err)) 
 
         self.list_users = {}
+        self.select_users = []
         ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'MainWindow.ui')
         uic.loadUi(ui_file, self)
         self.select_departments.currentIndexChanged.connect(self.onChangeDepartment)
@@ -342,9 +343,9 @@ class Ui(QMainWindow):
         if self.select_employee.currentIndex() == -1:
             if not show_messagebox("info", "Подтвердите действие", "Сотрудник не выбран, запрос данных будет производится по каждому сотруднику отдела.", True):
                 return
-            list_users = [self.select_employee.itemText(i) for i in range(self.select_employee.count())]
+            self.select_users = [self.select_employee.itemText(i) for i in range(self.select_employee.count())]
         else:
-            list_users = [self.select_employee.currentText()]
+            self.select_users = [self.select_employee.currentText()]
         if not any([self.checker_poib.isChecked(), self.checker_axiok.isChecked(), self.checker_eis.isChecked()]):
             if not show_messagebox("info", "Подтвердите действие", "Не выбрана ни одна подсистема. Поиск будет производится по всем имеющимся.", True):
                 return
@@ -352,15 +353,15 @@ class Ui(QMainWindow):
         else:
             list_systems = [system for system, checkbox in [('SOBI', self.checker_poib), ('AXIOK', self.checker_axiok), ('EIS', self.checker_eis)] if checkbox.isChecked()]
 
-        t1 = threading.Thread(target=self.process_logs, args=(list_systems, list_users))
+        t1 = threading.Thread(target=self.process_logs, args=(list_systems))
         t1.start()
 
-    def process_logs(self, list_systems, list_users):
+    def process_logs(self, list_systems):
         for system_el in list_systems:
             self.addLogs(202, [system_el], '')
 
             next_is_data = False
-            for log in handler.start(list_users, system_el, self.browserPath.text()):
+            for log in handler.start(self.select_users, system_el, self.browserPath.text()):
                 if next_is_data:
                     self.restructurData(log)
                 elif log['code'] == 100:
@@ -432,7 +433,7 @@ class Ui(QMainWindow):
             UPDATE "KingMatrixAPI_userroles" 
             SET "isChecked" = FALSE 
             WHERE "user" IN %s
-        ''', (tuple(self.list_users.values()),))
+        ''', tuple(self.select_users))
         
         cursor_matrix.close()
 
