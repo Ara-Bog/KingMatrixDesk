@@ -251,12 +251,12 @@ class Ui(QMainWindow):
     def __init__(self, handles: dict):
         super(Ui, self).__init__()
         self.conn_matrix = connect(
-            database='matrix', **passwords.DB
-            # database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
+            # database='matrix', **passwords.DB
+            database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
         )
         self.conn_auth = connect(
-            database='auth_db', **passwords.DB
-            # database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
+            # database='auth_db', **passwords.DB
+            database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
         )
 
         self.__excel_loader = ExcelLoader()
@@ -302,12 +302,16 @@ class Ui(QMainWindow):
 
         user_list = list(users)
 
-        placeholders = ', '.join(['%s'] * len(user_list))
-
         cursor = self.conn_auth.cursor()
-        cursor.execute(f'''SELECT id, lower(replace(name, ' ', '')) as name FROM "Auth_LDAP_customuser" WHERE lower(replace(name, ' ', '')) IN  ({placeholders})''', user_list)
+        cursor.execute('''
+                       SELECT id, name 
+                       FROM "Auth_LDAP_customuser" 
+                       WHERE lower(replace(name, ' ', '')) IN %s
+                       ''', (tuple(user_list), ))
         self.list_users.clear()
+        self.select_users.clear()
         for id, name in cursor.fetchall():
+            self.select_users.append(id)
             self.list_users[name] = id
 
         t1 = threading.Thread(target=self.restructurData, args=(roles,))
@@ -352,7 +356,6 @@ class Ui(QMainWindow):
             list_systems = ['SOBI', 'AXIOK', 'EIS']
         else:
             list_systems = [system for system, checkbox in [('SOBI', self.checker_poib), ('AXIOK', self.checker_axiok), ('EIS', self.checker_eis)] if checkbox.isChecked()]
-
         t1 = threading.Thread(target=self.process_logs, args=(list_systems,))
         t1.start()
 
@@ -373,6 +376,7 @@ class Ui(QMainWindow):
     def restructurData(self, data: dict):
         counter = {'check': 0, 'create': 0, 'errors': 0, 'undefined': 0}
         list_systems = {}
+        systems_cleared = []
 
         for key in data:
             counter['check'] += 1
@@ -392,7 +396,10 @@ class Ui(QMainWindow):
 
                 added_data['id'] = self.addNewSystem(key, id_parent)
                 
-                self.setDeleteFlag(id_parent if id_parent else added_data['id'])
+                select_system_id = id_parent if id_parent else added_data['id']
+
+                if select_system_id in systems_cleared:
+                    self.setDeleteFlag(select_system_id)
                 
                 list_systems.update({key: added_data})
 
@@ -424,7 +431,8 @@ class Ui(QMainWindow):
         cursor_matrix = self.conn_matrix.cursor()
         cursor_matrix.execute('''
             DELETE FROM "KingMatrixAPI_userroles" 
-            WHERE "isChecked" = FALSE''', ())
+            WHERE "isChecked" = FALSE
+        ''', ())
 
         data = cursor_matrix.rowcount
         cursor_matrix.close()
@@ -432,14 +440,16 @@ class Ui(QMainWindow):
 
     def setDeleteFlag(self, id_system: str):
         cursor_matrix = self.conn_matrix.cursor()
-
         cursor_matrix.execute('''
             UPDATE "KingMatrixAPI_userroles" 
             SET "isChecked" = FALSE  
             WHERE "user" IN %s
-            AND role_id IN (SELECT id FROM "KingMatrixAPI_roles" WHERE system_id = %s)
+            AND role_id IN (SELECT id 
+                              FROM "KingMatrixAPI_roles" 
+                              WHERE "system_id" = %s 
+                              OR "system_id" IN (SELECT id FROM "KingMatrixAPI_systems" WHERE "parent" = %s))
             
-        ''', (tuple(self.list_users[key] for key in self.select_users), id_system))
+        ''', (tuple(self.list_users[key] for key in self.select_users), id_system, id_system))
         
         cursor_matrix.close()
 
