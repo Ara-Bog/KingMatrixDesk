@@ -241,8 +241,8 @@ class HandlerRoles():
                     self.__log_queue.put({'code': 200})
                 else:
                     self.__log_queue.put({'code': 404})
+                    continue
             except Exception as e:
-                print(e)
                 self.__log_queue.put({'code': 401, 'discription': str(e)})
                 continue
             for role in response_roles['list']:
