@@ -251,12 +251,12 @@ class Ui(QMainWindow):
     def __init__(self, handles: dict):
         super(Ui, self).__init__()
         self.conn_matrix = connect(
-            # database='matrix', **passwords.DB
-            database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
+            database='matrix', **passwords.DB
+            # database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
         )
         self.conn_auth = connect(
-            # database='auth_db', **passwords.DB
-            database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
+            database='auth_db', **passwords.DB
+            # database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
         )
 
         self.__excel_loader = ExcelLoader()
@@ -353,7 +353,7 @@ class Ui(QMainWindow):
         else:
             list_systems = [system for system, checkbox in [('SOBI', self.checker_poib), ('AXIOK', self.checker_axiok), ('EIS', self.checker_eis)] if checkbox.isChecked()]
 
-        t1 = threading.Thread(target=self.process_logs, args=(list_systems))
+        t1 = threading.Thread(target=self.process_logs, args=(list_systems,))
         t1.start()
 
     def process_logs(self, list_systems):
@@ -373,24 +373,27 @@ class Ui(QMainWindow):
     def restructurData(self, data: dict):
         counter = {'check': 0, 'create': 0, 'errors': 0, 'undefined': 0}
         list_systems = {}
-        self.setDeleteFlag()
 
         for key in data:
             counter['check'] += 1
             updated_users = set()
-            # try:
-            if True:
-                added_data = {'id': None, 'name': key, 'parent': None}
-                id_parent = None
+            added_data = {'id': None, 'name': key, 'parent': None}
+            id_parent = None
+
+            try:
                 name_parent = data[key]['parent']
+
                 if name_parent != None:
                     id_parent = list_systems.get(name_parent, {}).get('id', None)
                     if id_parent == None:
                         id_parent = self.addNewSystem(name_parent)
                         list_systems.update({name_parent: {'id': id_parent, 'name': name_parent, 'parent': None}})
                     added_data['parent'] = id_parent
-                
+
                 added_data['id'] = self.addNewSystem(key, id_parent)
+                
+                self.setDeleteFlag(id_parent if id_parent else added_data['id'])
+                
                 list_systems.update({key: added_data})
 
                 # добавление роли пользователю
@@ -410,9 +413,9 @@ class Ui(QMainWindow):
                         if relation:
                             counter['create'] += 1
                 self.addLogsMatrix(updated_users, added_data['id'])
-            # except Exception as e:
-            #     counter['errors'] += 1
-            #     self.addLogs(400, [key], str(e))
+            except Exception as e:
+                counter['errors'] += 1
+                self.addLogs(400, [key], str(e))
         count_delete = self.deleteInactiveRoles()
         self.addLogs(201, [], f'Общее количество - {counter["check"]}; Создано - {counter["create"]}; Ошибок - {counter["errors"]}; Не найден пользователь - {counter["undefined"]}; Удалено полномочий - {count_delete}')
         self.conn_matrix.commit()
@@ -427,13 +430,16 @@ class Ui(QMainWindow):
         cursor_matrix.close()
         return data
 
-    def setDeleteFlag(self):
+    def setDeleteFlag(self, id_system: str):
         cursor_matrix = self.conn_matrix.cursor()
+
         cursor_matrix.execute('''
             UPDATE "KingMatrixAPI_userroles" 
-            SET "isChecked" = FALSE 
+            SET "isChecked" = FALSE  
             WHERE "user" IN %s
-        ''', tuple(self.select_users))
+            AND role_id IN (SELECT id FROM "KingMatrixAPI_roles" WHERE system_id = %s)
+            
+        ''', (tuple(self.list_users[key] for key in self.select_users), id_system))
         
         cursor_matrix.close()
 
