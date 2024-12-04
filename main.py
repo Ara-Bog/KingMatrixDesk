@@ -314,7 +314,7 @@ class Ui(QMainWindow):
         self.list_users.clear()
         self.select_users.clear()
         for id, name in cursor.fetchall():
-            self.select_users.append(id)
+            self.select_users.append(name)
             self.list_users[name] = id
 
         t1 = threading.Thread(target=self.restructurData, args=(roles,))
@@ -452,7 +452,7 @@ class Ui(QMainWindow):
             AND role_id IN (SELECT id 
                               FROM "KingMatrixAPI_roles" 
                               WHERE "system_id" = %s 
-                              OR "system_id" IN (SELECT id FROM "KingMatrixAPI_systems" WHERE "parent" = %s))
+                              OR "system_id" IN (SELECT id FROM "KingMatrixAPI_systems" WHERE "parent_id" = %s))
             
         ''', (tuple(self.list_users[key] for key in self.select_users), id_system, id_system))
         
