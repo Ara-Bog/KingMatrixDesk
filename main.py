@@ -80,7 +80,7 @@ class LoaderView(QDialog):
     def __init__(self):
         super(LoaderView, self).__init__()
 
-        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'loadView.ui')
+        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'interfaces/loadView.ui')
         uic.loadUi(ui_file, self)
         self.user_initiated_close = True
 
@@ -133,7 +133,7 @@ class ExcelLoader(QDialog):
     def __init__(self):
         super(ExcelLoader, self).__init__()
 
-        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'selectExcel.ui')
+        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'interfaces/selectExcel.ui')
         uic.loadUi(ui_file, self)
         self.fileDialog.clicked.connect(self.openFileDialog)
         self.copy_script.clicked.connect(self.copyScript)
@@ -229,12 +229,15 @@ class ExcelLoader(QDialog):
         if self.current_iteration < self.total_iterations:
             try:
                 user = self.select_sheet_file.cell_value(self.current_iteration, 0)
+                sysname_user = self.select_sheet_file.cell_value(self.current_iteration, 1)
                 role_list = self.select_sheet_file.cell_value(self.current_iteration, 2).split('|')
-                for role in role_list:
-                    if role:
-                        self.output_data[self.select_system]['roles'].setdefault(role, [])
-                        self.output_data[self.select_system]['roles'][role].append(user)
+                self.output_data[sysname_user] = {'parent': self.select_system, 'roles': {}}
+                
                 self.list_users.add(user)
+                for role in role_list:
+                    self.output_data[sysname_user]['roles'].setdefault(role, [])
+                    self.output_data[sysname_user]['roles'][role].append(user)
+
                 self.__loader.increase()
                 self.current_iteration += 1
                 QTimer.singleShot(0, self.readExcel)
@@ -251,12 +254,12 @@ class Ui(QMainWindow):
     def __init__(self, handles: dict):
         super(Ui, self).__init__()
         self.conn_matrix = connect(
-            # database='matrix', **passwords.DB
-            database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
+            database='matrix', **passwords.DB
+            # database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
         )
         self.conn_auth = connect(
-            # database='auth_db', **passwords.DB
-            database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
+            database='auth_db', **passwords.DB
+            # database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
         )
 
         self.__excel_loader = ExcelLoader()
@@ -265,7 +268,7 @@ class Ui(QMainWindow):
 
         self.list_users = {}
         self.select_users = []
-        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'MainWindow.ui')
+        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'interfaces/MainWindow.ui')
         uic.loadUi(ui_file, self)
         self.select_departments.currentIndexChanged.connect(self.onChangeDepartment)
         self.submit.clicked.connect(self.get_data_tree)
@@ -306,7 +309,7 @@ class Ui(QMainWindow):
         cursor.execute('''
                        SELECT id, name 
                        FROM "Auth_LDAP_customuser" 
-                       WHERE lower(replace(name, ' ', '')) IN %s
+                       WHERE name IN %s
                        ''', (tuple(user_list), ))
         self.list_users.clear()
         self.select_users.clear()
@@ -398,8 +401,9 @@ class Ui(QMainWindow):
                 
                 select_system_id = id_parent if id_parent else added_data['id']
 
-                if select_system_id in systems_cleared:
+                if select_system_id not in systems_cleared:
                     self.setDeleteFlag(select_system_id)
+                    systems_cleared.append(select_system_id)
                 
                 list_systems.update({key: added_data})
 
@@ -421,6 +425,7 @@ class Ui(QMainWindow):
                             counter['create'] += 1
                 self.addLogsMatrix(updated_users, added_data['id'])
             except Exception as e:
+                print("ERROR", e)
                 counter['errors'] += 1
                 self.addLogs(400, [key], str(e))
         count_delete = self.deleteInactiveRoles()
