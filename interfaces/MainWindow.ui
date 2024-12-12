@@ -52,7 +52,7 @@
       <number>10</number>
      </property>
      <item row="1" column="1">
-      <widget class="QComboBox" name="select_employee">
+      <widget class="QComboBox" name="selectEmployee">
        <property name="editable">
         <bool>true</bool>
        </property>
@@ -65,7 +65,7 @@
       </widget>
      </item>
      <item row="1" column="0">
-      <widget class="QComboBox" name="select_departments">
+      <widget class="QComboBox" name="selectDepartments">
        <property name="enabled">
         <bool>true</bool>
        </property>
@@ -92,10 +92,10 @@
         </sizepolicy>
        </property>
        <property name="text">
-        <string>Выберите отдел *</string>
+        <string>Выберите отдел</string>
        </property>
        <property name="buddy">
-        <cstring>select_departments</cstring>
+        <cstring>selectDepartments</cstring>
        </property>
       </widget>
      </item>
@@ -111,7 +111,7 @@
         <string>Выберите сотрудника</string>
        </property>
        <property name="buddy">
-        <cstring>select_employee</cstring>
+        <cstring>selectEmployee</cstring>
        </property>
       </widget>
      </item>
@@ -134,7 +134,7 @@
       <number>15</number>
      </property>
      <item row="0" column="0">
-      <widget class="QCheckBox" name="checker_poib">
+      <widget class="QCheckBox" name="checkerPoib">
        <property name="cursor">
         <cursorShape>PointingHandCursor</cursorShape>
        </property>
@@ -144,7 +144,7 @@
       </widget>
      </item>
      <item row="0" column="1">
-      <widget class="QCheckBox" name="checker_eis">
+      <widget class="QCheckBox" name="checkerEis">
        <property name="cursor">
         <cursorShape>PointingHandCursor</cursorShape>
        </property>
@@ -154,7 +154,7 @@
       </widget>
      </item>
      <item row="0" column="2">
-      <widget class="QCheckBox" name="checker_axiok">
+      <widget class="QCheckBox" name="checkerAxiok">
        <property name="cursor">
         <cursorShape>PointingHandCursor</cursorShape>
        </property>
@@ -245,7 +245,7 @@
       <number>10</number>
      </property>
      <item row="1" column="1">
-      <widget class="QPushButton" name="fileDialog">
+      <widget class="QPushButton" name="file_dialog">
        <property name="text">
         <string>Обзор</string>
        </property>
@@ -294,23 +294,15 @@
     </rect>
    </property>
   </widget>
-  <action name="actionqq">
-   <property name="enabled">
-    <bool>true</bool>
-   </property>
-   <property name="text">
-    <string>qq</string>
-   </property>
-  </action>
  </widget>
  <tabstops>
   <tabstop>browserPath</tabstop>
-  <tabstop>fileDialog</tabstop>
-  <tabstop>select_departments</tabstop>
-  <tabstop>select_employee</tabstop>
-  <tabstop>checker_poib</tabstop>
-  <tabstop>checker_eis</tabstop>
-  <tabstop>checker_axiok</tabstop>
+  <tabstop>file_dialog</tabstop>
+  <tabstop>selectDepartments</tabstop>
+  <tabstop>selectEmployee</tabstop>
+  <tabstop>checkerPoib</tabstop>
+  <tabstop>checkerEis</tabstop>
+  <tabstop>checkerAxiok</tabstop>
   <tabstop>submit</tabstop>
   <tabstop>clear_logs</tabstop>
   <tabstop>outView</tabstop>

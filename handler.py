@@ -49,9 +49,7 @@ class HandlerRoles():
         # self.__options.binary_location = '/usr/bin/chromium-gost'
 
         self.__routes['functions'] = {'SOBI': self.open_sobi, 'EIS': self.open_eis, 'AXIOK': self.open_axiok}
-        
 
-    
     def __await_load(self):
         while self.__driver.execute_script("return document.readyState") != "complete":
             time.sleep(1)
@@ -60,9 +58,11 @@ class HandlerRoles():
         if system not in self.__routes:
             yield {'code': 403, 'args': []}
             return 
+        
         self.__result_queue = Queue()
         self.__log_queue = Queue()
         self.__names = names
+
         if self.__routes[system].get('OpenBrowser', True):
             try:
                 self.__options.binary_location = chromium_path
@@ -72,6 +72,7 @@ class HandlerRoles():
             except Exception as e:
                 yield {'code': 500, 'discription': str(e)}
                 return 
+            
         t1 = threading.Thread(target=self.__routes['functions'][system], kwargs=self.__routes[system])
         t1.start()
         
@@ -88,9 +89,11 @@ class HandlerRoles():
         script = f"""
             arguments[0](fetch('{url.format(*args)}').then(response => response.json()));
         """
+
         response = self.__driver.execute_async_script(script)
         response_json = json.dumps(response, ensure_ascii=False)
         response = json.loads(response_json)
+
         return response
     
     def open_axiok(self, default_filter, **kwards) -> None:
@@ -100,43 +103,46 @@ class HandlerRoles():
                 'limit': 1000,
                 'records': '[]'
             }
+        roles = {'Аксиок Планирование': {'parent': None, 'roles': {}}}
+        link_roles = roles['Аксиок Планирование']['roles']
         s = requests.Session()
         server = passwords.AXIOK['server']
+
         try:
             s.post(f"{server}/login", data=passwords.AXIOK['auth'])
         except Exception as e:
-            print("ERR", e)
             self.__log_queue.put({'code': 403, 'discription': str(e)})
             return
-        
-        roles = {'Аксиок Планирование': {'parent': None, 'roles': {}}}
-        link_roles = roles['Аксиок Планирование']['roles']
+
         for name in self.__names:
             self.__log_queue.put({'code': 102, 'args': [name]})
-            try:
-                current_datetime = int(time.time() * 1000)
-                user_filter = {
-                    'dataFilter': {
-                        "Group": 2,
-                        "Filters": [
-                            {
-                                "DataIndex": "Name",
-                                "Value": name,
-                                "Operand": 6
-                            }
-                        ]
-                    },
-                    **default_filter
-                }
 
+            current_datetime = int(time.time() * 1000)
+            user_filter = {
+                'dataFilter': {
+                    "Group": 2,
+                    "Filters": [
+                        {
+                            "DataIndex": "Name",
+                            "Value": name,
+                            "Operand": 6
+                        }
+                    ]
+                },
+                **default_filter
+            }
+
+            try:
                 data = s.post(f"{server}/action/Operator/ListByOrganization", params={'_dc': current_datetime}, json=user_filter).json()['data']
                 
                 if len(data):
                     roles_filter = {'objectId': data[0]['Id'], **default_filter}
                     data = s.post(f"{server}/action/Operator/GetOperatorRoles", params={'_dc': current_datetime}, json=roles_filter).json()['data']
+
                     for role in data:
                         link_roles.setdefault(role['Name'], [])  
                         link_roles[role['Name']].append(name)
+
                     self.__log_queue.put({'code': 200})            
                 else:
                     self.__log_queue.put({'code': 404})
@@ -161,8 +167,10 @@ class HandlerRoles():
 
         latest_url = users_search_url
         roles = {"ЕИС": {'parent': None, 'roles': {}}}
+        
         for name in self.__names:
             self.__log_queue.put({'code': 102, 'args': [name]})
+
             try:
                 login = urllib.parse.quote(name.split(' ')[0])
                 script = f"""
@@ -186,6 +194,7 @@ class HandlerRoles():
                         "referrer": "{latest_url}"
                     }}).then(response => response));
                 """
+
                 latest_url = self.__driver.execute_async_script(script)['url']
 
                 self.__driver.get(latest_url)
@@ -199,11 +208,15 @@ class HandlerRoles():
                 continue
             
             empty_user = True
+
             for tr in table_tr[1:]:
                 table_td = tr.find_all('td')
+
                 if table_td[0].get('id', '') == 'emptyRow':
                     break
+
                 name_user = f"{table_td[2].text} {table_td[3].text} {table_td[4].text}"
+
                 if name.replace(" ", "").lower() != name_user.replace(" ", "").lower():
                     continue
 
@@ -212,9 +225,8 @@ class HandlerRoles():
                 roles.setdefault(select_system, {'parent': "ЕИС", 'roles': {}})
 
                 roles[select_system]['roles'].setdefault(table_td[5].text, [])
-                
                 roles[select_system]['roles'][table_td[5].text].append(name)
-            
+
             if empty_user:
                 self.__log_queue.put({'code': 404})
             else:
@@ -234,6 +246,7 @@ class HandlerRoles():
         roles = {}
         for name in self.__names:
             self.__log_queue.put({'code': 102, 'args': [name]})
+            
             try:
                 response_id = self.__get_response(id_url, name)
                 if len(response_id['list']) > 0:
@@ -260,5 +273,3 @@ class HandlerRoles():
         self.__log_queue.put({'code': 100})
         self.__driver.quit()
         self.__result_queue.put(roles)
-
-    

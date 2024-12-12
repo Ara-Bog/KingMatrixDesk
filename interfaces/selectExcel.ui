@@ -28,7 +28,7 @@
   <widget class="QDialogButtonBox" name="buttonBox">
    <property name="geometry">
     <rect>
-     <x>220</x>
+     <x>230</x>
      <y>110</y>
      <width>161</width>
      <height>32</height>
@@ -41,124 +41,101 @@
     <set>QDialogButtonBox::Cancel|QDialogButtonBox::Open</set>
    </property>
   </widget>
-  <widget class="QLineEdit" name="excelPath">
+  <widget class="QWidget" name="horizontalLayoutWidget_2">
    <property name="geometry">
     <rect>
      <x>10</x>
-     <y>10</y>
-     <width>291</width>
-     <height>20</height>
-    </rect>
-   </property>
-   <property name="acceptDrops">
-    <bool>false</bool>
-   </property>
-  </widget>
-  <widget class="QPushButton" name="fileDialog">
-   <property name="geometry">
-    <rect>
-     <x>305</x>
-     <y>10</y>
-     <width>75</width>
-     <height>23</height>
-    </rect>
-   </property>
-   <property name="text">
-    <string>Обзор</string>
-   </property>
-  </widget>
-  <widget class="QGroupBox" name="selectSystem">
-   <property name="geometry">
-    <rect>
-     <x>10</x>
-     <y>40</y>
-     <width>161</width>
-     <height>91</height>
-    </rect>
-   </property>
-   <property name="title">
-    <string/>
-   </property>
-   <property name="flat">
-    <bool>true</bool>
-   </property>
-   <property name="checkable">
-    <bool>false</bool>
-   </property>
-   <widget class="QWidget" name="verticalLayoutWidget">
-    <property name="geometry">
-     <rect>
-      <x>0</x>
-      <y>0</y>
-      <width>160</width>
-      <height>80</height>
-     </rect>
-    </property>
-    <layout class="QVBoxLayout" name="verticalLayout">
-     <item>
-      <widget class="QRadioButton" name="asfk_check">
-       <property name="text">
-        <string>АСФК</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QRadioButton" name="sufd_check">
-       <property name="text">
-        <string>СУФД</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </widget>
-  </widget>
-  <widget class="QPushButton" name="copy_script">
-   <property name="geometry">
-    <rect>
-     <x>180</x>
-     <y>60</y>
-     <width>201</width>
+     <y>70</y>
+     <width>381</width>
      <height>41</height>
     </rect>
    </property>
-   <property name="sizePolicy">
-    <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
-     <horstretch>0</horstretch>
-     <verstretch>0</verstretch>
-    </sizepolicy>
-   </property>
-   <property name="text">
-    <string>Скопировать скрипт
-для выгрузки</string>
-   </property>
-   <property name="checkable">
-    <bool>false</bool>
-   </property>
-   <property name="checked">
-    <bool>false</bool>
-   </property>
-   <property name="autoRepeat">
-    <bool>false</bool>
-   </property>
-   <property name="autoExclusive">
-    <bool>false</bool>
-   </property>
-   <property name="autoDefault">
-    <bool>false</bool>
-   </property>
+   <layout class="QHBoxLayout" name="horizontalLayout_2">
+    <property name="spacing">
+     <number>8</number>
+    </property>
+    <item>
+     <widget class="QLineEdit" name="excelPath">
+      <property name="enabled">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QPushButton" name="file_dialog">
+      <property name="text">
+       <string>Обзор</string>
+      </property>
+     </widget>
+    </item>
+   </layout>
   </widget>
-  <widget class="QCheckBox" name="minimize_script">
+  <widget class="QWidget" name="gridLayoutWidget">
    <property name="geometry">
     <rect>
-     <x>180</x>
-     <y>40</y>
-     <width>201</width>
-     <height>17</height>
+     <x>10</x>
+     <y>10</y>
+     <width>381</width>
+     <height>61</height>
     </rect>
    </property>
-   <property name="text">
-    <string>Скрипт в одну строку</string>
-   </property>
+   <layout class="QGridLayout" name="gridLayout">
+    <item row="0" column="1">
+     <widget class="QCheckBox" name="minimizeScript">
+      <property name="text">
+       <string>Скрипт в одну строку</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="1">
+     <widget class="QPushButton" name="copy_script">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Minimum" vsizetype="Maximum">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="text">
+       <string>Скопировать скрипт
+для выгрузки</string>
+      </property>
+      <property name="checkable">
+       <bool>false</bool>
+      </property>
+      <property name="checked">
+       <bool>false</bool>
+      </property>
+      <property name="autoRepeat">
+       <bool>false</bool>
+      </property>
+      <property name="autoExclusive">
+       <bool>false</bool>
+      </property>
+      <property name="autoDefault">
+       <bool>false</bool>
+      </property>
+      <property name="default">
+       <bool>false</bool>
+      </property>
+      <property name="flat">
+       <bool>false</bool>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="0">
+     <widget class="QComboBox" name="selectSystem"/>
+    </item>
+    <item row="0" column="0">
+     <widget class="QLabel" name="label">
+      <property name="text">
+       <string>Выберите систему</string>
+      </property>
+      <property name="buddy">
+       <cstring>selectSystem</cstring>
+      </property>
+     </widget>
+    </item>
+   </layout>
   </widget>
  </widget>
  <resources/>
@@ -170,8 +147,8 @@
    <slot>accept()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>248</x>
-     <y>254</y>
+     <x>258</x>
+     <y>141</y>
     </hint>
     <hint type="destinationlabel">
      <x>157</x>
@@ -186,8 +163,8 @@
    <slot>reject()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>316</x>
-     <y>260</y>
+     <x>326</x>
+     <y>141</y>
     </hint>
     <hint type="destinationlabel">
      <x>286</x>

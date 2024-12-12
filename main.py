@@ -13,6 +13,7 @@ import os
 import passwords
 import re
 from xlrd import open_workbook
+import re
 
 from PyQt5.QtCore import QTimer
 
@@ -35,7 +36,6 @@ TYPES_MSGS = {
     "err": QMessageBox.Critical,
     "warn": QMessageBox.Warning
 }
-
 
 def show_messagebox(type_msg:str, title:str, text:str, cancel: bool = False): 
     msg = QMessageBox() 
@@ -127,15 +127,15 @@ class ExcelLoader(QDialog):
     callbackData = pyqtSignal(dict)
     callbackLogs = pyqtSignal(int, str)
 
-    __script_ASFK = passwords.SCRIPTS['ASFK']
-    __script_SUFD = passwords.SCRIPTS['SUFD']
+    __sed_fio_pattern = r'FIO.{5}([А-Яа-я\s]+)'
+    __sed_roles_pattern = r"Roles.{5}([A-Za-z\r]+)"
 
     def __init__(self):
         super(ExcelLoader, self).__init__()
 
         ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'interfaces/selectExcel.ui')
         uic.loadUi(ui_file, self)
-        self.fileDialog.clicked.connect(self.openFileDialog)
+        self.file_dialog.clicked.connect(self.openFileDialog)
         self.copy_script.clicked.connect(self.copyScript)
 
         self.loading = False
@@ -144,10 +144,11 @@ class ExcelLoader(QDialog):
         self.__loader = LoaderView()
         self.__loader.loadingPaused.connect(self.pauseLoading) 
         self.__loader.closeLoading.connect(self.closeLoading) 
+        self.selectSystem.addItems(passwords.SCRIPTS.items())
 
         self.output_data = None
         self.list_users = set()
-        self.select_system = None
+        self.calledMethod = None
         self.select_file = None
         self.current_iteration = 0
         self.total_iterations = 0
@@ -169,7 +170,7 @@ class ExcelLoader(QDialog):
     def closeLoading(self):
         self.output_data = None
         self.list_users = set()
-        self.select_system = None
+        self.calledMethod = None
         self.select_sheet_file = None
         self.current_iteration = -1
         self.total_iterations = 0
@@ -185,15 +186,12 @@ class ExcelLoader(QDialog):
 
         text = "Скрипт скопирован в буфер обмена"
         buffer = ''
-        if self.asfk_check.isChecked():
-            buffer = self.__script_ASFK
-        elif self.sufd_check.isChecked():
-            buffer = self.__script_SUFD
-        else:
+        cur_index = self.selectSystem.currentIndex()
+        if cur_index == -1:
             text = "Не выбрана ни одна подсистема"
-
-        if buffer:
-            if self.minimize_script.isChecked():
+        else:
+            buffer = self.selectSystem.itemData(cur_index)
+            if self.minimizeScript.isChecked():
                 buffer = buffer.replace('\n', '')
                 buffer = re.sub(r'\t+', ' ', buffer)
                 buffer = re.sub(r'\s+', ' ', buffer)
@@ -201,6 +199,30 @@ class ExcelLoader(QDialog):
         
         show_messagebox("info" if buffer else 'warn', "Копирование скрипта", text)
     
+    def loadSUFD(self):
+        user = self.select_sheet_file.cell_value(self.current_iteration, 0)
+        sysname_user = self.select_sheet_file.cell_value(self.current_iteration, 1)
+        role_list = self.select_sheet_file.cell_value(self.current_iteration, 2).split('|')
+        
+        return sysname_user, user, role_list
+
+    def loadSED(self):
+        sysname_user = self.select_sheet_file.cell_value(self.current_iteration, 0)
+        sign = self.select_sheet_file.cell_value(self.current_iteration, 2)
+
+        binary_data = bytes.fromhex(self.select_sheet_file.cell_value(self.current_iteration, 1))
+        data = binary_data.decode('cp1251', errors='ignore')
+
+        match_user = re.search(self.__sed_fio_pattern, data)
+        user = match_user.group(1) if match_user else None
+
+        match_roles = re.search(self.__sed_roles_pattern, data)
+        role_list = match_roles.group(1).split('\r')[:-1] if match_roles else [] 
+        role_list.append(sign)
+
+        return sysname_user, user, role_list 
+
+
     def accept(self):
         if not self.asfk_check.isChecked() and not self.sufd_check.isChecked():
             show_messagebox("warn", "Загрузка EXCEL", "Не выбрана ни одна подсистема.")
@@ -208,12 +230,20 @@ class ExcelLoader(QDialog):
         if not os.path.exists(self.excelPath.text()):
             show_messagebox("err", "Загрузка EXCEL", "Неверный путь к файлу.")
             return
-        
+        select_system = self.selectSystem.currentText()
         try:
-            self.select_system = 'АСФК' if self.asfk_check.isChecked() else 'СУФД' # ПОМЕНЯТЬ!!!
-            self.output_data = {self.select_system: {'parent': None, 'roles': {}}}
+            match select_system:
+                case 'ASFK' | 'SUFD':
+                    self.calledMethod = self.loadSUFD
+                    self.current_iteration = 1
+                case 'SED1K' | 'SED2K' | 'SED3K':
+                    self.calledMethod = self.loadSED
+                    self.current_iteration = 0
+                case _:
+                    self.current_iteration = 1
+
+            self.output_data = {select_system: {'parent': None, 'roles': {}}}
             self.select_sheet_file = open_workbook(self.excelPath.text()).sheet_by_index(0)
-            self.current_iteration = 1
             self.total_iterations = self.select_sheet_file.nrows
             self.__loader.start(self.select_sheet_file.nrows - 1)
             self.loading = True
@@ -228,15 +258,13 @@ class ExcelLoader(QDialog):
         if not self.loading or self.loadingPause: return 
         if self.current_iteration < self.total_iterations:
             try:
-                user = self.select_sheet_file.cell_value(self.current_iteration, 0)
-                sysname_user = self.select_sheet_file.cell_value(self.current_iteration, 1)
-                role_list = self.select_sheet_file.cell_value(self.current_iteration, 2).split('|')
-                self.output_data[sysname_user] = {'parent': self.select_system, 'roles': {}}
-                
+                login, user, role_list = self.calledMethod()
+
+                self.output_data[login] = {'parent': self.selectSystem.currentText(), 'roles': {}}
+
                 self.list_users.add(user)
                 for role in role_list:
-                    self.output_data[sysname_user]['roles'].setdefault(role, [])
-                    self.output_data[sysname_user]['roles'][role].append(user)
+                    self.output_data[login]['roles'][role] = [user]
 
                 self.__loader.increase()
                 self.current_iteration += 1
@@ -270,14 +298,14 @@ class Ui(QMainWindow):
         self.select_users = []
         ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'interfaces/MainWindow.ui')
         uic.loadUi(ui_file, self)
-        self.select_departments.currentIndexChanged.connect(self.onChangeDepartment)
+        self.selectDepartments.currentIndexChanged.connect(self.onChangeDepartment)
         self.submit.clicked.connect(self.get_data_tree)
         self.getDefaultData()
         self.model = MyModel()
         self.outView.setModel(self.model)
         self.clear_logs.clicked.connect(lambda: self.model.removeRows(0, self.model.rowCount()))
         self.load_excel.clicked.connect(lambda: self.__excel_loader.show())
-        self.fileDialog.clicked.connect(self.openFileDialog)
+        self.file_dialog.clicked.connect(self.openFileDialog)
         # self.outView.setItemDelegate(ItemWordWrap(self.outView))
         self.handler = handler
         self.cache = []
@@ -289,13 +317,13 @@ class Ui(QMainWindow):
             self.browserPath.setText(filePath)
 
     def setListEmpoyees(self, department_id: int):
-        self.select_employee.clear()
+        self.selectEmployee.clear()
         cursor = self.conn_auth.cursor()
         cursor.execute('''SELECT id, name FROM "Auth_LDAP_customuser" WHERE department_id = %s''', (department_id,))
         self.list_users.clear()
         for id, name in cursor.fetchall():
             self.list_users[name] = id
-            self.select_employee.addItem(name, id)
+            self.selectEmployee.addItem(name, id)
             
         cursor.close()
 
@@ -322,20 +350,20 @@ class Ui(QMainWindow):
 
     def onChangeEmployee(self, text):
         if text == '':
-            self.combobox.setCurrentIndex(-1)
+            self.selectEmployee.setCurrentIndex(-1)
 
     def onChangeDepartment(self, index):
-        self.setListEmpoyees(self.select_departments.itemData(index))
+        self.setListEmpoyees(self.selectDepartments.itemData(index))
         
     def getDefaultData(self):
         settings = QSettings("Matrix", "Settings")
         self.browserPath.setText(settings.value("browserPath", ""))
 
-        self.select_employee.clear()
+        self.selectEmployee.clear()
         cursor_auth = self.conn_auth.cursor()
         cursor_auth.execute('''SELECT id, name FROM "Auth_LDAP_departments"''')
         for id, name in cursor_auth.fetchall():
-            self.select_departments.addItem(name, id)
+            self.selectDepartments.addItem(name, id)
         cursor_auth.close()
 
     def addLogs(self, code, title_args = [""], discription=""):
@@ -343,22 +371,33 @@ class Ui(QMainWindow):
         now = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         self.model.add_data([now, msg['type_msg'], msg['title'].format(*title_args), discription])
 
+    def getAllUsers(self):
+        cursor = self.conn_auth.cursor()
+        out = []
+        cursor.execute('''SELECT id, name FROM "Auth_LDAP_customuser" WHERE is_superuser = False''')
+        self.list_users.clear()
+        for id, name in cursor.fetchall():
+            self.list_users[name] = id
+        return out
+
+
     def get_data_tree(self):
-        if self.select_departments.currentIndex() == -1:
-            show_messagebox("err", "Ошибка запроса", "Не выбран ни один отедел!") 
-            return
-        if self.select_employee.currentIndex() == -1:
+        if self.selectDepartments.currentIndex() == -1:
+            if not show_messagebox("info", "Подтвердите действие", "Отдел не выбран, данные будут получены по всему управлению.", True):
+                return
+            self.select_users = self.getAllUsers()
+        elif self.selectEmployee.currentIndex() == -1:
             if not show_messagebox("info", "Подтвердите действие", "Сотрудник не выбран, запрос данных будет производится по каждому сотруднику отдела.", True):
                 return
-            self.select_users = [self.select_employee.itemText(i) for i in range(self.select_employee.count())]
+            self.select_users = [self.selectEmployee.itemText(i) for i in range(self.selectEmployee.count())]
         else:
-            self.select_users = [self.select_employee.currentText()]
-        if not any([self.checker_poib.isChecked(), self.checker_axiok.isChecked(), self.checker_eis.isChecked()]):
+            self.select_users = [self.selectEmployee.currentText()]
+        if not any([self.checkerPoib.isChecked(), self.checkerAxiok.isChecked(), self.checkerEis.isChecked()]):
             if not show_messagebox("info", "Подтвердите действие", "Не выбрана ни одна подсистема. Поиск будет производится по всем имеющимся.", True):
                 return
             list_systems = ['SOBI', 'AXIOK', 'EIS']
         else:
-            list_systems = [system for system, checkbox in [('SOBI', self.checker_poib), ('AXIOK', self.checker_axiok), ('EIS', self.checker_eis)] if checkbox.isChecked()]
+            list_systems = [system for system, checkbox in [('SOBI', self.checkerPoib), ('AXIOK', self.checkerAxiok), ('EIS', self.checkerEis)] if checkbox.isChecked()]
         t1 = threading.Thread(target=self.process_logs, args=(list_systems,))
         t1.start()
 
