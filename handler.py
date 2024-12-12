@@ -9,6 +9,7 @@ import requests
 import passwords
 import os
 from selenium.webdriver.chrome.service import Service
+import re
 
 class HandlerRoles():
     __routes = {
@@ -50,6 +51,9 @@ class HandlerRoles():
 
         self.__routes['functions'] = {'SOBI': self.open_sobi, 'EIS': self.open_eis, 'AXIOK': self.open_axiok}
 
+    def clean_string(self, name):
+        return re.sub(r'\s+', ' ', name).strip()
+    
     def __await_load(self):
         while self.__driver.execute_script("return document.readyState") != "complete":
             time.sleep(1)
@@ -103,8 +107,6 @@ class HandlerRoles():
                 'limit': 1000,
                 'records': '[]'
             }
-        roles = {'Аксиок Планирование': {'parent': None, 'roles': {}}}
-        link_roles = roles['Аксиок Планирование']['roles']
         s = requests.Session()
         server = passwords.AXIOK['server']
 
@@ -114,6 +116,9 @@ class HandlerRoles():
             self.__log_queue.put({'code': 403, 'discription': str(e)})
             return
 
+        roles = {'Аксиок Планирование': {'parent': None, 'roles': {}}}
+        link_roles = roles['Аксиок Планирование']['roles']
+        
         for name in self.__names:
             self.__log_queue.put({'code': 102, 'args': [name]})
 
@@ -221,11 +226,13 @@ class HandlerRoles():
                     continue
 
                 empty_user = False
-                select_system = f"{table_td[1].find('a').text} - {table_td[0].find('span')['title']}"
+                select_system = self.clean_string(f"{table_td[1].find('a').text} - {table_td[0].find('span')['title']}")
                 roles.setdefault(select_system, {'parent': "ЕИС", 'roles': {}})
 
-                roles[select_system]['roles'].setdefault(table_td[5].text, [])
-                roles[select_system]['roles'][table_td[5].text].append(name)
+                role = self.clean_string(table_td[5].text)
+                roles[select_system]['roles'].setdefault(role, [])
+
+                roles[select_system]['roles'][role].append(name)
 
             if empty_user:
                 self.__log_queue.put({'code': 404})
@@ -258,6 +265,7 @@ class HandlerRoles():
             except Exception as e:
                 self.__log_queue.put({'code': 401, 'discription': str(e)})
                 continue
+            
             for role in response_roles['list']:
                 if len(role['groups']) == 0:
                     role['groups'].append(None)
