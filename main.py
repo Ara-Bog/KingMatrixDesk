@@ -144,7 +144,8 @@ class ExcelLoader(QDialog):
         self.__loader = LoaderView()
         self.__loader.loadingPaused.connect(self.pauseLoading) 
         self.__loader.closeLoading.connect(self.closeLoading) 
-        self.selectSystem.addItems(passwords.SCRIPTS.items())
+        for item in passwords.SCRIPTS.items():
+            self.selectSystem.addItem(*item)
 
         self.output_data = None
         self.list_users = set()
@@ -224,13 +225,13 @@ class ExcelLoader(QDialog):
 
 
     def accept(self):
-        if not self.asfk_check.isChecked() and not self.sufd_check.isChecked():
+        select_system = self.selectSystem.currentText()
+        if not select_system:
             show_messagebox("warn", "Загрузка EXCEL", "Не выбрана ни одна подсистема.")
             return
         if not os.path.exists(self.excelPath.text()):
             show_messagebox("err", "Загрузка EXCEL", "Неверный путь к файлу.")
             return
-        select_system = self.selectSystem.currentText()
         try:
             match select_system:
                 case 'ASFK' | 'SUFD':
