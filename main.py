@@ -223,6 +223,23 @@ class ExcelLoader(QDialog):
 
         return sysname_user, user, role_list 
 
+    def loadCKS(self):
+        sysname_user = self.select_sheet_file.cell_value(self.current_iteration, 0)
+        user = self.select_sheet_file.cell_value(self.current_iteration, 1)
+        oed = self.select_sheet_file.cell_value(self.current_iteration, 2)
+        sysadmin = self.select_sheet_file.cell_value(self.current_iteration, 3)
+        admkompl = self.select_sheet_file.cell_value(self.current_iteration, 4)
+
+        role_list = []
+
+        if sysadmin:
+            role_list.append('Системный администратор')
+        if admkompl:
+            role_list.append('Администратор комплекса')
+        if oed:
+            role_list.append('Работа с ЭОД (РКЦ/Банком). Настройка автоматов комплекса')
+
+        return sysname_user, user, role_list 
 
     def accept(self):
         select_system = self.selectSystem.currentText()
@@ -239,6 +256,9 @@ class ExcelLoader(QDialog):
                     self.current_iteration = 1
                 case 'SED1K' | 'SED2K' | 'SED3K':
                     self.calledMethod = self.loadSED
+                    self.current_iteration = 0
+                case 'CKS':
+                    self.calledMethod = self.loadCKS
                     self.current_iteration = 0
                 case _:
                     self.current_iteration = 1
