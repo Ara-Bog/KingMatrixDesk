@@ -351,15 +351,13 @@ class Ui(QMainWindow):
     def loadExcel(self, data):
         roles = data['data'] # its dict
         users = data['users'] # its set
-
-        user_list = list(users)
-
+        print("ZZ", users)
         cursor = self.conn_auth.cursor()
         cursor.execute('''
                        SELECT id, name 
                        FROM "Auth_LDAP_customuser" 
                        WHERE name IN %s
-                       ''', (tuple(user_list), ))
+                       ''', (tuple(users), ))
         self.list_users.clear()
         self.select_users.clear()
         for id, name in cursor.fetchall():
@@ -401,7 +399,6 @@ class Ui(QMainWindow):
             self.list_users[name] = id
         return out
 
-
     def get_data_tree(self):
         if self.selectDepartments.currentIndex() == -1:
             if not show_messagebox("info", "Подтвердите действие", "Отдел не выбран, данные будут получены по всему управлению.", True):
@@ -435,7 +432,7 @@ class Ui(QMainWindow):
                     self.addLogs(100, [system_el], '')
                 else:
                     self.addLogs(log['code'], log.get('args', []), log.get('discription', ""))
-
+    
     def restructurData(self, data: dict):
         counter = {'check': 0, 'create': 0, 'errors': 0, 'undefined': 0}
         list_systems = {}
@@ -450,9 +447,9 @@ class Ui(QMainWindow):
             try:
                 name_parent = data[key]['parent']
 
-                if name_parent != None:
+                if name_parent is not None:
                     id_parent = list_systems.get(name_parent, {}).get('id', None)
-                    if id_parent == None:
+                    if id_parent is None:
                         id_parent = self.addNewSystem(name_parent)
                         list_systems.update({name_parent: {'id': id_parent, 'name': name_parent, 'parent': None}})
                     added_data['parent'] = id_parent
@@ -471,7 +468,7 @@ class Ui(QMainWindow):
                 id_system = list_systems[key]['id']
                 counter['check'] -= 1
                 for role in data[key]['roles']:
-                    role_id = self.addNewRole(id_system, role)
+                    role_id = self.addNewRole(role)  # Изменено: убрано id_system
 
                     for user in data[key]['roles'][role]:
                         counter['check'] += 1
@@ -480,7 +477,7 @@ class Ui(QMainWindow):
                             counter['undefined'] += 1
                             continue
                         updated_users.add(id_user)
-                        relation = self.addUserRoles(id_user, role_id)
+                        relation = self.addUserRoles(id_user, role_id, id_system)  # Передаем id_system
                         if relation:
                             counter['create'] += 1
                 self.addLogsMatrix(updated_users, added_data['id'])
@@ -531,8 +528,8 @@ class Ui(QMainWindow):
             data = cursor_matrix.rowcount
 
         return data
-
-    def addUserRoles(self, id_user, id_role):
+    
+    def addUserRoles(self, id_user, id_role, id_system):
         with self.conn_matrix.cursor() as cursor_matrix:
             cursor_matrix.execute('''
                 SELECT id FROM "KingMatrixAPI_userroles" WHERE "user" = %s AND role_id = %s
@@ -544,34 +541,33 @@ class Ui(QMainWindow):
                     UPDATE "KingMatrixAPI_userroles" 
                     SET "isChecked" = TRUE 
                     WHERE "id" = %s
-                ''', (data))
+                ''', (data,))
                 return None
             else:
                 cursor_matrix.execute('''
-                    INSERT INTO "KingMatrixAPI_userroles" ("user", role_id, "isChecked") 
-                    VALUES (%s, %s, %s)
+                    INSERT INTO "KingMatrixAPI_userroles" ("user", role_id, "system_id", "isChecked") 
+                    VALUES (%s, %s, %s, %s)
                     RETURNING id
-                ''', (id_user, id_role, True))
+                ''', (id_user, id_role, id_system, True))
                 
                 data = cursor_matrix.fetchone()
             return data[0]
 
-    def addNewRole(self, id_system, role):
+    def addNewRole(self, role):
         with self.conn_matrix.cursor() as cursor_matrix:
-            
             # Сначала проверяем, существует ли роль
             cursor_matrix.execute('''
-                SELECT id FROM "KingMatrixAPI_roles" WHERE system_id = %s AND name = %s
-            ''', (id_system, role))
+                SELECT id FROM "KingMatrixAPI_roles" WHERE name = %s
+            ''', (role,))
             
             data = cursor_matrix.fetchone()
             
             if data is None:
                 cursor_matrix.execute('''
-                    INSERT INTO "KingMatrixAPI_roles" (system_id, name) 
-                    VALUES (%s, %s)
+                    INSERT INTO "KingMatrixAPI_roles" (name) 
+                    VALUES (%s)
                     RETURNING id
-                ''', (id_system, role))
+                ''', (role,))
                 data = cursor_matrix.fetchone()
 
         return data[0]
