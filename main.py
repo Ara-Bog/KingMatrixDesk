@@ -214,8 +214,12 @@ class ExcelLoader(QDialog):
         binary_data = bytes.fromhex(self.select_sheet_file.cell_value(self.current_iteration, 1))
         data = binary_data.decode('cp1251', errors='ignore')
 
+
         match_user = re.search(self.__sed_fio_pattern, data)
         user = match_user.group(1) if match_user else None
+
+        if re.search('Blocked', data):
+            return None, user, []
 
         match_roles = re.search(self.__sed_roles_pattern, data)
         role_list = match_roles.group(1).split('\r')[:-1] if match_roles else [] 
@@ -281,11 +285,13 @@ class ExcelLoader(QDialog):
             try:
                 login, user, role_list = self.calledMethod()
 
-                self.output_data[login] = {'parent': self.selectSystem.currentText(), 'roles': {}}
+                if login:
+                    if login not in self.output_data:
+                        self.output_data[login] = {'parent': self.selectSystem.currentText(), 'roles': {}}
 
-                self.list_users.add(user)
-                for role in role_list:
-                    self.output_data[login]['roles'][role] = [user]
+                    self.list_users.add(user)
+                    for role in role_list:
+                        self.output_data[login]['roles'][role] = [user]
 
                 self.__loader.increase()
                 self.current_iteration += 1
@@ -351,7 +357,6 @@ class Ui(QMainWindow):
     def loadExcel(self, data):
         roles = data['data'] # its dict
         users = data['users'] # its set
-        print("ZZ", users)
         cursor = self.conn_auth.cursor()
         cursor.execute('''
                        SELECT id, name 
