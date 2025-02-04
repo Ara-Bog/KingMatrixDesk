@@ -402,6 +402,7 @@ class Ui(QMainWindow):
         self.list_users.clear()
         for id, name in cursor.fetchall():
             self.list_users[name] = id
+            out.append(name)
         return out
 
     def get_data_tree(self):
