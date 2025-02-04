@@ -511,13 +511,9 @@ class Ui(QMainWindow):
         cursor_matrix.execute('''
             UPDATE "KingMatrixAPI_userroles" 
             SET "isChecked" = FALSE  
-            WHERE "user" IN %s
-            AND role_id IN (SELECT id 
-                              FROM "KingMatrixAPI_roles" 
-                              WHERE "system_id" = %s 
-                              OR "system_id" IN (SELECT id FROM "KingMatrixAPI_systems" WHERE "parent_id" = %s))
-            
-        ''', (tuple(self.list_users[key] for key in self.select_users), id_system, id_system))
+            WHERE system_id = %s
+                              OR system_id IN (SELECT id FROM "KingMatrixAPI_systems" WHERE "parent_id" = %s)
+        ''', (id_system, id_system))
         
         cursor_matrix.close()
 
