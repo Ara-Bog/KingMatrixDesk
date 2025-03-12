@@ -13,21 +13,22 @@ import os
 import passwords
 import re
 from xlrd import open_workbook
-import re
+import requests
 
 from PyQt5.QtCore import QTimer
 
-'Шаблоны логов'
+# Шаблоны логов
 MESSAGES = {
     100: {'type_msg': 'info', 'title': "Сбор данных в системе - {} закончен."},
-    102: {'type_msg': 'info', 'title': "Начат сбор по пользователю - {}."},
-    200: {'type_msg': 'success', 'title': "Данные пользователя успешно получены!"},
+    # 102: {'type_msg': 'info', 'title': "Начат сбор по пользователю - {}."},
+    # 200: {'type_msg': 'success', 'title': "Данные пользователя успешно получены!"},
     201: {'type_msg': 'success', 'title': "Данные добавлены в базу данных!"},
     202: {'type_msg': 'info', 'title': "Начат сбор в системе - {}."},
     400: {'type_msg': 'error', 'title': "Ошибка добавления данных по системе {} в базу данных!"},
     401: {'type_msg': 'error', 'title': "Ошибка в получении данных пользователя!"},
     403: {'type_msg': 'error', 'title': "Запрос не может быть обработан."},
-    404: {'type_msg': 'info', 'title': "Пользователь не найден в подсистеме."},
+    404: {'type_msg': 'warn', 'title': "Пользователь {} не найден в подсистеме."},
+    405: {'type_msg': 'warn', 'title': "Не удалось расшифровать данные пользователя {}."},
     500: {'type_msg': 'error', 'title': "Системная ошибка."}
 }
 
@@ -192,10 +193,6 @@ class ExcelLoader(QDialog):
             text = "Не выбрана ни одна подсистема"
         else:
             buffer = self.selectSystem.itemData(cur_index)
-            if self.minimizeScript.isChecked():
-                buffer = buffer.replace('\n', '')
-                buffer = re.sub(r'\t+', ' ', buffer)
-                buffer = re.sub(r'\s+', ' ', buffer)
             clipboard.setText(buffer)
         
         show_messagebox("info" if buffer else 'warn', "Копирование скрипта", text)
@@ -306,10 +303,11 @@ class ExcelLoader(QDialog):
             self.closeLoading()
         
 class Ui(QMainWindow):
-    def __init__(self, handles: dict):
+    def __init__(self, handler):
         super(Ui, self).__init__()
         self.conn_matrix = connect(
-            database='matrix', **passwords.DB
+            # database='matrix', **passwords.DB
+            database='test_matrix', **passwords.DB
             # database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
         )
         self.conn_auth = connect(
@@ -333,26 +331,12 @@ class Ui(QMainWindow):
         self.clear_logs.clicked.connect(lambda: self.model.removeRows(0, self.model.rowCount()))
         self.load_excel.clicked.connect(lambda: self.__excel_loader.show())
         self.file_dialog.clicked.connect(self.openFileDialog)
-        # self.outView.setItemDelegate(ItemWordWrap(self.outView))
+        self.callAPI.clicked.connect(self.sync_ldap_users)
         self.handler = handler
+        self.selectVersionBrowser.addItems(handler.get_supported_chrome())
+        self.selectVersionBrowser.setCurrentIndex(0)
         self.cache = []
         self.show()
-
-    def openFileDialog(self):
-        filePath, _ = QFileDialog.getOpenFileName(self, "Путь к браузеру", self.browserPath.text(), "Executable Files (*.exe *.bin *.sh)")
-        if filePath:
-            self.browserPath.setText(filePath)
-
-    def setListEmpoyees(self, department_id: int):
-        self.selectEmployee.clear()
-        cursor = self.conn_auth.cursor()
-        cursor.execute('''SELECT id, name FROM "Auth_LDAP_customuser" WHERE department_id = %s''', (department_id,))
-        self.list_users.clear()
-        for id, name in cursor.fetchall():
-            self.list_users[name] = id
-            self.selectEmployee.addItem(name, id)
-            
-        cursor.close()
 
     def loadExcel(self, data):
         roles = data['data'] # its dict
@@ -372,9 +356,27 @@ class Ui(QMainWindow):
         t1 = threading.Thread(target=self.restructurData, args=(roles,))
         t1.start()
 
+    def openFileDialog(self):
+        filePath, _ = QFileDialog.getOpenFileName(self, "Путь к браузеру", self.browserPath.text(), "Executable Files (*.exe *.bin *.sh)")
+        if filePath:
+            self.browserPath.setText(filePath)
+
+    def setListEmpoyees(self, department_id: int):
+        self.selectEmployee.clear()
+        cursor = self.conn_auth.cursor()
+        cursor.execute('''SELECT id, name FROM "Auth_LDAP_customuser" WHERE department_id = %s ORDER BY name''', (department_id,))
+        self.list_users.clear()
+        self.selectEmployee.addItem('Все', 0)
+        self.selectEmployee.setCurrentIndex(0)
+        for id, name in cursor.fetchall():
+            self.list_users[name] = id
+            self.selectEmployee.addItem(name, id)
+            
+        cursor.close()
+
     def onChangeEmployee(self, text):
         if text == '':
-            self.selectEmployee.setCurrentIndex(-1)
+            self.selectEmployee.setCurrentIndex(0)
 
     def onChangeDepartment(self, index):
         self.setListEmpoyees(self.selectDepartments.itemData(index))
@@ -385,7 +387,9 @@ class Ui(QMainWindow):
 
         self.selectEmployee.clear()
         cursor_auth = self.conn_auth.cursor()
-        cursor_auth.execute('''SELECT id, name FROM "Auth_LDAP_departments"''')
+        cursor_auth.execute('''SELECT id, name FROM "Auth_LDAP_departments" ORDER BY "sortBy"''')
+        self.selectDepartments.addItem("Все отделы", 0)
+        self.selectDepartments.setCurrentIndex(0)
         for id, name in cursor_auth.fetchall():
             self.selectDepartments.addItem(name, id)
         cursor_auth.close()
@@ -406,22 +410,18 @@ class Ui(QMainWindow):
         return out
 
     def get_data_tree(self):
-        if self.selectDepartments.currentIndex() == -1:
-            if not show_messagebox("info", "Подтвердите действие", "Отдел не выбран, данные будут получены по всему управлению.", True):
-                return
+        if self.selectDepartments.currentIndex() == 0:
             self.select_users = self.getAllUsers()
-        elif self.selectEmployee.currentIndex() == -1:
-            if not show_messagebox("info", "Подтвердите действие", "Сотрудник не выбран, запрос данных будет производится по каждому сотруднику отдела.", True):
-                return
-            self.select_users = [self.selectEmployee.itemText(i) for i in range(self.selectEmployee.count())]
+        elif self.selectEmployee.currentIndex() == 0:
+            self.select_users = [self.selectEmployee.itemText(i+1) for i in range(self.selectEmployee.count() - 1)]
         else:
             self.select_users = [self.selectEmployee.currentText()]
-        if not any([self.checkerPoib.isChecked(), self.checkerAxiok.isChecked(), self.checkerEis.isChecked()]):
+        if not any([self.checkerPoib.isChecked(), self.checkerAxiok.isChecked(), self.checkerEis.isChecked(), self.checkerSeds.isChecked()]):
             if not show_messagebox("info", "Подтвердите действие", "Не выбрана ни одна подсистема. Поиск будет производится по всем имеющимся.", True):
                 return
-            list_systems = ['SOBI', 'AXIOK', 'EIS']
+            list_systems = ['SOBI', 'AXIOK', 'EIS', 'SEDS']
         else:
-            list_systems = [system for system, checkbox in [('SOBI', self.checkerPoib), ('AXIOK', self.checkerAxiok), ('EIS', self.checkerEis)] if checkbox.isChecked()]
+            list_systems = [system for system, checkbox in [('SOBI', self.checkerPoib), ('AXIOK', self.checkerAxiok), ('EIS', self.checkerEis), ('SEDS', self.checkerSeds)] if checkbox.isChecked()]
         t1 = threading.Thread(target=self.process_logs, args=(list_systems,))
         t1.start()
 
@@ -430,15 +430,26 @@ class Ui(QMainWindow):
             self.addLogs(202, [system_el], '')
 
             next_is_data = False
-            for log in handler.start(self.select_users, system_el, self.browserPath.text()):
+            for log in handler.start(self.select_users, system_el, self.browserPath.text(), self.selectVersionBrowser.currentText()):
                 if next_is_data:
-                    self.restructurData(log)
+                    if log:
+                        self.restructurData(log)
                 elif log['code'] == 100:
                     next_is_data = True
                     self.addLogs(100, [system_el], '')
                 else:
                     self.addLogs(log['code'], log.get('args', []), log.get('discription', ""))
     
+    def sync_ldap_users(self):
+        url = passwords.API_LDAP
+        try:
+            response = requests.post(url)
+            response.raise_for_status()
+            show_messagebox('info', 'Выполнено', f'Пользователи успешно обновлены!\n{response.json()}')
+            print('Response:', response.json()) 
+        except requests.exceptions.RequestException as e:
+            show_messagebox('err', 'Ошибка', f'Ошибка запроса сервера: {e}')
+
     def restructurData(self, data: dict):
         counter = {'check': 0, 'create': 0, 'errors': 0, 'undefined': 0}
         list_systems = {}
@@ -471,9 +482,11 @@ class Ui(QMainWindow):
                 list_systems.update({key: added_data})
 
                 # добавление роли пользователю
-                id_system = list_systems[key]['id']
+                id_system = added_data['id']
                 counter['check'] -= 1
                 for role in data[key]['roles']:
+                    if not role:
+                        continue
                     role_id = self.addNewRole(role)  # Изменено: убрано id_system
 
                     for user in data[key]['roles'][role]:
@@ -488,7 +501,7 @@ class Ui(QMainWindow):
                             counter['create'] += 1
                 self.addLogsMatrix(updated_users, added_data['id'])
             except Exception as e:
-                print("ERROR", e)
+                print("ERROR restructurData:", e)
                 counter['errors'] += 1
                 self.addLogs(400, [key], str(e))
         count_delete = self.deleteInactiveRoles()
@@ -496,35 +509,33 @@ class Ui(QMainWindow):
         self.conn_matrix.commit()
 
     def deleteInactiveRoles(self):
-        cursor_matrix = self.conn_matrix.cursor()
-        cursor_matrix.execute('''
-            DELETE FROM "KingMatrixAPI_userroles" 
-            WHERE "isChecked" = FALSE
-        ''', ())
+        with self.conn_matrix.cursor() as cursor_matrix:
+            cursor_matrix.execute('''
+                DELETE FROM "KingMatrixAPI_userroles" 
+                WHERE "isChecked" = FALSE
+            ''', ())
 
-        data = cursor_matrix.rowcount
-        cursor_matrix.close()
+            data = cursor_matrix.rowcount
         return data
 
     def setDeleteFlag(self, id_system: str):
-        cursor_matrix = self.conn_matrix.cursor()
-        cursor_matrix.execute('''
-            UPDATE "KingMatrixAPI_userroles" 
-            SET "isChecked" = FALSE  
-            WHERE system_id = %s
-                              OR system_id IN (SELECT id FROM "KingMatrixAPI_systems" WHERE "parent_id" = %s)
-        ''', (id_system, id_system))
-        
-        cursor_matrix.close()
+        with self.conn_matrix.cursor() as cursor_matrix:
+            cursor_matrix.execute('''
+                UPDATE "KingMatrixAPI_userroles" 
+                SET "isChecked" = FALSE  
+                WHERE "user" IN %s
+                                AND ("system_id" = %s
+                                OR "system_id" IN (SELECT id FROM "KingMatrixAPI_systems" WHERE "parent_id" = %s))
+            ''', (tuple(self.list_users[name] for name in self.select_users), id_system, id_system))
 
     def addLogsMatrix(self, users, system):
         with self.conn_matrix.cursor() as cursor_matrix:
             cursor_matrix.execute('''
                 DELETE FROM "KingMatrixAPI_logupdates"  
-                WHERE "user" = ANY(%s::int[])  AND system_id = %s
+                WHERE "user" = ANY(%s::int[])  AND "system_id" = %s
             ''', (list(users), system))
             cursor_matrix.execute('''
-                INSERT INTO "KingMatrixAPI_logupdates" ("user", system_id, date_msg) 
+                INSERT INTO "KingMatrixAPI_logupdates" ("user", "system_id", "date_msg") 
                 SELECT unnest(%s::int[]), %s, NOW()
             ''', (list(users), system))
             data = cursor_matrix.rowcount
@@ -534,7 +545,7 @@ class Ui(QMainWindow):
     def addUserRoles(self, id_user, id_role, id_system):
         with self.conn_matrix.cursor() as cursor_matrix:
             cursor_matrix.execute('''
-                SELECT id FROM "KingMatrixAPI_userroles" WHERE "user" = %s AND role_id = %s
+                SELECT id FROM "KingMatrixAPI_userroles" WHERE "user" = %s AND "role_id" = %s
             ''', (id_user, id_role))
                 
             data = cursor_matrix.fetchone()
@@ -571,6 +582,7 @@ class Ui(QMainWindow):
                     RETURNING id
                 ''', (role,))
                 data = cursor_matrix.fetchone()
+        self.conn_matrix.commit()
 
         return data[0]
 
@@ -595,6 +607,7 @@ class Ui(QMainWindow):
                 ''', (system_name, id_parent))
                 
                 data = cursor_matrix.fetchone()
+        self.conn_matrix.commit()
         
         return data[0]
     

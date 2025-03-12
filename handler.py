@@ -6,10 +6,11 @@ from queue import Queue
 import urllib.parse
 from bs4 import BeautifulSoup as bs
 import requests
-import passwords
+import passwords as psw
 import os
 from selenium.webdriver.chrome.service import Service
 import re
+import pyodbc
 
 class HandlerRoles():
     __routes = {
@@ -35,7 +36,17 @@ class HandlerRoles():
                 'limit': 1000,
                 'records': '[]'
             }
+        },
+        'SEDS': {
+            'OpenBrowser': False,
+            "sed_fio_pattern": r'FIO.*?([А-Яа-я\s]+)',
+            "sed_roles_pattern": r"Roles.{5}([A-Za-z\r]+)",
         }
+    }
+
+    __chrome_versions = {
+        '131.0.6778.69': os.path.join(os.path.dirname(os.path.abspath(__file__)), 'drivers/chromedriver_131.exe'),
+        '109.0.5414.173': os.path.join(os.path.dirname(os.path.abspath(__file__)), 'drivers/chromedriver_109.exe'),
     }
 
     def __init__(self):
@@ -46,10 +57,9 @@ class HandlerRoles():
                     )
         self.__options.add_argument('--auto-select-certificate')
         self.__options.add_experimental_option("excludeSwitches", ["enable-logging"])
-        self.__chromedriver_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chromedriver.exe')
         # self.__options.binary_location = '/usr/bin/chromium-gost'
 
-        self.__routes['functions'] = {'SOBI': self.open_sobi, 'EIS': self.open_eis, 'AXIOK': self.open_axiok}
+        self.__routes['functions'] = {'SOBI': self.open_sobi, 'EIS': self.open_eis, 'AXIOK': self.open_axiok, 'SEDS': self.open_seds}
 
     def clean_string(self, name):
         return re.sub(r'\s+', ' ', name).strip()
@@ -58,7 +68,10 @@ class HandlerRoles():
         while self.__driver.execute_script("return document.readyState") != "complete":
             time.sleep(1)
 
-    def start(self, names: list, system: str, chromium_path: str):
+    def get_supported_chrome(self) -> list:
+        return list(self.__chrome_versions.keys())
+
+    def start(self, names: list, system: str, chromium_path: str, chromium_v: str):
         if system not in self.__routes:
             yield {'code': 403, 'args': []}
             return 
@@ -69,9 +82,9 @@ class HandlerRoles():
 
         if self.__routes[system].get('OpenBrowser', True):
             try:
+                driver = Service(self.__chrome_versions[chromium_v])
                 self.__options.binary_location = chromium_path
-
-                self.__driver = webdriver.Chrome(service = Service(self.__chromedriver_path), options=self.__options)
+                self.__driver = webdriver.Chrome(service = driver, options=self.__options)
                 self.__driver.set_window_size(800, 800)
             except Exception as e:
                 yield {'code': 500, 'discription': str(e)}
@@ -100,6 +113,58 @@ class HandlerRoles():
 
         return response
     
+    def open_seds(self, sed_fio_pattern: str, sed_roles_pattern:str, **kwards):
+        roles = {}
+        for server, db in psw.SED_DB.items():
+            connection_string = f"DRIVER={{SQL Server}};SERVER={server};DATABASE={db};UID={psw.SED_CONNECT['user']};PWD={psw.SED_CONNECT['password']}"
+            roles[db] = {'parent': None, 'roles': {}}
+            print("\n\nNEW DB: ", db)
+            try:
+                with pyodbc.connect(connection_string) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(psw.SCRIPTS[db])
+                    if cursor.description:
+                        rows = cursor.fetchall()
+                        
+                        for row in rows:
+                            sysname_user, data_byte, sign = row
+                            data = data_byte.decode('cp1251', errors='ignore')
+                            cleaned_data = re.sub(r'[^a-zA-Zа-яА-ЯёЁ\n\s]', '', data)
+
+                            match_user = re.search(sed_fio_pattern, cleaned_data)
+                            user = match_user.group(1) if match_user else None
+                            user = re.sub('\s{0,}', '', str(user))
+                            user = re.sub(r'(?<!^)(?=[A-ZА-Я])', ' ', user)
+
+                            if re.search('Blocked', data):
+                                continue
+                            if not user:
+                                self.__log_queue.put({'code': 405, 'args': [sysname_user]})
+                                continue
+
+                            user = user[2:] if user[0] in ['p', 'р', 'a', 'а'] else user
+                            if user not in self.__names:
+                                continue
+
+                            match_roles = re.search(sed_roles_pattern, data)
+                            role_list = match_roles.group(1).split('\r')[:-1] if match_roles else [] 
+                            role_list.append(sign)
+                            
+                            if sysname_user:
+                                if sysname_user not in roles:
+                                    roles[sysname_user] = {'parent': db, 'roles': {}}
+                                
+                                for role in role_list:
+                                    roles[sysname_user]['roles'].setdefault(role, [])
+                                    roles[sysname_user]['roles'][role].append(user)
+                            
+            except Exception as e:
+                self.__log_queue.put({'code': 401, 'discription': f'{db}: {e}'})
+                continue
+        
+        self.__log_queue.put({'code': 100})
+        self.__result_queue.put(roles)
+
     def open_axiok(self, default_filter, **kwards) -> None:
         default_filter = {
                 'page': 1,
@@ -108,10 +173,10 @@ class HandlerRoles():
                 'records': '[]'
             }
         s = requests.Session()
-        server = passwords.AXIOK['server']
+        server = psw.AXIOK['server']
 
         try:
-            s.post(f"{server}/login", data=passwords.AXIOK['auth'])
+            s.post(f"{server}/login", data=psw.AXIOK['auth'])
         except Exception as e:
             self.__log_queue.put({'code': 403, 'discription': str(e)})
             return
@@ -120,8 +185,6 @@ class HandlerRoles():
         link_roles = roles['Аксиок Планирование']['roles']
         
         for name in self.__names:
-            self.__log_queue.put({'code': 102, 'args': [name]})
-
             current_datetime = int(time.time() * 1000)
             user_filter = {
                 'dataFilter': {
@@ -147,10 +210,8 @@ class HandlerRoles():
                     for role in data:
                         link_roles.setdefault(role['Name'], [])  
                         link_roles[role['Name']].append(name)
-
-                    self.__log_queue.put({'code': 200})            
                 else:
-                    self.__log_queue.put({'code': 404})
+                    self.__log_queue.put({'code': 404, 'args': [name]})
             except Exception as e:
                 self.__log_queue.put({'code': 401, 'discription': str(e)})
                 continue
@@ -169,13 +230,14 @@ class HandlerRoles():
             self.__await_load()
         except Exception as e:
             self.__log_queue.put({'code': 403, 'discription': str(e)})
+            self.__driver.quit()
+            self.__result_queue.put(None)
+            return
 
         latest_url = users_search_url
         roles = {"ЕИС": {'parent': None, 'roles': {}}}
         
         for name in self.__names:
-            self.__log_queue.put({'code': 102, 'args': [name]})
-
             try:
                 login = urllib.parse.quote(name.split(' ')[0])
                 script = f"""
@@ -235,9 +297,7 @@ class HandlerRoles():
                 roles[select_system]['roles'][role].append(name)
 
             if empty_user:
-                self.__log_queue.put({'code': 404})
-            else:
-                self.__log_queue.put({'code': 200})
+                self.__log_queue.put({'code': 404, 'args': [name]})
 
         self.__log_queue.put({'code': 100})
         self.__driver.quit()
@@ -249,18 +309,19 @@ class HandlerRoles():
             self.__await_load()
         except Exception as e:
             self.__log_queue.put({'code': 403, 'discription': str(e)})
+            self.__driver.quit()
+            self.__result_queue.put(None)
+            return
 
         roles = {}
         for name in self.__names:
-            self.__log_queue.put({'code': 102, 'args': [name]})
             
             try:
                 response_id = self.__get_response(id_url, name)
                 if len(response_id['list']) > 0:
                     response_roles = self.__get_response(roles_url, response_id['list'][0]['id'])
-                    self.__log_queue.put({'code': 200})
                 else:
-                    self.__log_queue.put({'code': 404})
+                    self.__log_queue.put({'code': 404, 'args': [name]})
                     continue
             except Exception as e:
                 self.__log_queue.put({'code': 401, 'discription': str(e)})

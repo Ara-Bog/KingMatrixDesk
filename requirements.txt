@@ -3,6 +3,7 @@
 beautifulsoup4==4.12.3
 psycopg2==2.9.9
 PyQt5==5.15.11
+pyodbc==5.2.0
 requests==2.25.1
 selenium==4.25.0
 xlrd==2.0.1

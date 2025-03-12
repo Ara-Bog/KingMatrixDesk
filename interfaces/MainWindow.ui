@@ -30,9 +30,9 @@
     <property name="geometry">
      <rect>
       <x>0</x>
-      <y>50</y>
+      <y>90</y>
       <width>641</width>
-      <height>61</height>
+      <height>51</height>
      </rect>
     </property>
     <layout class="QGridLayout" name="filterWrap">
@@ -121,7 +121,7 @@
     <property name="geometry">
      <rect>
       <x>0</x>
-      <y>110</y>
+      <y>140</y>
       <width>641</width>
       <height>31</height>
      </rect>
@@ -143,16 +143,6 @@
        </property>
       </widget>
      </item>
-     <item row="0" column="1">
-      <widget class="QCheckBox" name="checkerEis">
-       <property name="cursor">
-        <cursorShape>PointingHandCursor</cursorShape>
-       </property>
-       <property name="text">
-        <string>ЕИС</string>
-       </property>
-      </widget>
-     </item>
      <item row="0" column="2">
       <widget class="QCheckBox" name="checkerAxiok">
        <property name="cursor">
@@ -163,15 +153,35 @@
        </property>
       </widget>
      </item>
+     <item row="0" column="1">
+      <widget class="QCheckBox" name="checkerEis">
+       <property name="cursor">
+        <cursorShape>PointingHandCursor</cursorShape>
+       </property>
+       <property name="text">
+        <string>ЕИС</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="3">
+      <widget class="QCheckBox" name="checkerSeds">
+       <property name="cursor">
+        <cursorShape>PointingHandCursor</cursorShape>
+       </property>
+       <property name="text">
+        <string>СедЫ</string>
+       </property>
+      </widget>
+     </item>
     </layout>
    </widget>
    <widget class="QTreeView" name="outView">
     <property name="geometry">
      <rect>
       <x>0</x>
-      <y>180</y>
+      <y>200</y>
       <width>641</width>
-      <height>281</height>
+      <height>261</height>
      </rect>
     </property>
     <property name="editTriggers">
@@ -190,15 +200,18 @@
    <widget class="QWidget" name="horizontalLayoutWidget">
     <property name="geometry">
      <rect>
-      <x>320</x>
-      <y>140</y>
-      <width>321</width>
-      <height>41</height>
+      <x>0</x>
+      <y>170</y>
+      <width>641</width>
+      <height>31</height>
      </rect>
     </property>
     <layout class="QHBoxLayout" name="horizontalLayout">
      <property name="spacing">
       <number>10</number>
+     </property>
+     <property name="leftMargin">
+      <number>15</number>
      </property>
      <property name="rightMargin">
       <number>15</number>
@@ -214,6 +227,13 @@
       </widget>
      </item>
      <item>
+      <widget class="QPushButton" name="load_excel">
+       <property name="text">
+        <string>Загрузка EXCEL</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QPushButton" name="clear_logs">
        <property name="cursor">
         <cursorShape>PointingHandCursor</cursorShape>
@@ -223,15 +243,22 @@
        </property>
       </widget>
      </item>
+     <item>
+      <widget class="QPushButton" name="callAPI">
+       <property name="text">
+        <string>Обновление списка сотрудников</string>
+       </property>
+      </widget>
+     </item>
     </layout>
    </widget>
    <widget class="QWidget" name="gridLayoutWidget_3">
     <property name="geometry">
      <rect>
       <x>0</x>
-      <y>0</y>
+      <y>7</y>
       <width>641</width>
-      <height>48</height>
+      <height>85</height>
      </rect>
     </property>
     <layout class="QGridLayout" name="gridLayout_2">
@@ -244,21 +271,7 @@
      <property name="spacing">
       <number>10</number>
      </property>
-     <item row="1" column="1">
-      <widget class="QPushButton" name="file_dialog">
-       <property name="text">
-        <string>Обзор</string>
-       </property>
-      </widget>
-     </item>
-     <item row="1" column="0">
-      <widget class="QLineEdit" name="browserPath">
-       <property name="acceptDrops">
-        <bool>false</bool>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="0">
+     <item row="2" column="1">
       <widget class="QLabel" name="label_3">
        <property name="text">
         <string>Путь к браузеру</string>
@@ -268,20 +281,47 @@
        </property>
       </widget>
      </item>
+     <item row="1" column="1">
+      <widget class="QLabel" name="label_4">
+       <property name="text">
+        <string>Версия браузера</string>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="2">
+      <widget class="QLineEdit" name="browserPath">
+       <property name="acceptDrops">
+        <bool>false</bool>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="3">
+      <widget class="QPushButton" name="file_dialog">
+       <property name="text">
+        <string>Обзор</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="2">
+      <widget class="QComboBox" name="selectVersionBrowser">
+       <property name="enabled">
+        <bool>true</bool>
+       </property>
+       <property name="whatsThis">
+        <string/>
+       </property>
+       <property name="editable">
+        <bool>true</bool>
+       </property>
+       <property name="placeholderText">
+        <string>Выберите отдел</string>
+       </property>
+       <property name="frame">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
     </layout>
-   </widget>
-   <widget class="QPushButton" name="load_excel">
-    <property name="geometry">
-     <rect>
-      <x>10</x>
-      <y>150</y>
-      <width>111</width>
-      <height>23</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Загрузка EXCEL</string>
-    </property>
    </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
@@ -296,15 +336,12 @@
   </widget>
  </widget>
  <tabstops>
-  <tabstop>browserPath</tabstop>
-  <tabstop>file_dialog</tabstop>
   <tabstop>selectDepartments</tabstop>
   <tabstop>selectEmployee</tabstop>
   <tabstop>checkerPoib</tabstop>
   <tabstop>checkerEis</tabstop>
   <tabstop>checkerAxiok</tabstop>
   <tabstop>submit</tabstop>
-  <tabstop>clear_logs</tabstop>
   <tabstop>outView</tabstop>
  </tabstops>
  <resources/>
