@@ -71,7 +71,7 @@ class HandlerRoles():
     def get_supported_chrome(self) -> list:
         return list(self.__chrome_versions.keys())
 
-    def start(self, names: list, system: str, chromium_path: str, chromium_v: str):
+    def start(self, names: list, system: str, chromium_path: str, chromium_v: str, debug=False):
         if system not in self.__routes:
             yield {'code': 403, 'args': []}
             return 
@@ -118,7 +118,6 @@ class HandlerRoles():
         for server, db in psw.SED_DB.items():
             connection_string = f"DRIVER={{SQL Server}};SERVER={server};DATABASE={db};UID={psw.SED_CONNECT['user']};PWD={psw.SED_CONNECT['password']}"
             roles[db] = {'parent': None, 'roles': {}}
-            print("\n\nNEW DB: ", db)
             try:
                 with pyodbc.connect(connection_string) as conn:
                     cursor = conn.cursor()
@@ -239,7 +238,10 @@ class HandlerRoles():
         
         for name in self.__names:
             try:
-                login = urllib.parse.quote(name.split(' ')[0])
+                # поиск в еис производиться только по фамиилии
+                # "_" - в соби соответствует 1 любому символу
+                correct_name = re.sub(r'[её]', '_', name.split(' ')[0])
+                login = urllib.parse.quote(correct_name)
                 script = f"""
                     arguments[0](fetch('{latest_url}', 
                     {{"body": "userLogin={login}&_userAuthorities=on&_userAuthorities=on&_userAuthorities=on&_userAuthorities=on&_userAuthorities=on&fromDate=&toDate=&_eventId_findOrganizationUsers=%D0%9D%D0%B0%D0%B9%D1%82%D0%B8&pageNumber=1&sortField=name.lastName&sortAsc=true&filterChanged=true&userId=",
@@ -282,9 +284,9 @@ class HandlerRoles():
                 if table_td[0].get('id', '') == 'emptyRow':
                     break
 
-                name_user = f"{table_td[2].text} {table_td[3].text} {table_td[4].text}"
+                name_user = self.clean_string(f"{table_td[2].text}{table_td[3].text}{table_td[4].text}").lower()
 
-                if name.replace(" ", "").lower() != name_user.replace(" ", "").lower():
+                if name.replace(" ", "").lower() != name_user:
                     continue
 
                 empty_user = False
@@ -292,6 +294,8 @@ class HandlerRoles():
                 roles.setdefault(select_system, {'parent': "ЕИС", 'roles': {}})
 
                 role = self.clean_string(table_td[5].text)
+                if not role:
+                    role = "Полномочия отсутствуют"
                 roles[select_system]['roles'].setdefault(role, [])
 
                 roles[select_system]['roles'][role].append(name)
@@ -317,7 +321,9 @@ class HandlerRoles():
         for name in self.__names:
             
             try:
-                response_id = self.__get_response(id_url, name)
+                # "_" - в соби соответствует 1 любому символу
+                correct_name = re.sub(r'[её]', '_', name)
+                response_id = self.__get_response(id_url, correct_name)
                 if len(response_id['list']) > 0:
                     response_roles = self.__get_response(roles_url, response_id['list'][0]['id'])
                 else:

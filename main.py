@@ -17,6 +17,8 @@ import requests
 
 from PyQt5.QtCore import QTimer
 
+DEBUG = False
+
 # Шаблоны логов
 MESSAGES = {
     100: {'type_msg': 'info', 'title': "Сбор данных в системе - {} закончен."},
@@ -126,7 +128,7 @@ class LoaderView(QDialog):
 
 class ExcelLoader(QDialog):
     callbackData = pyqtSignal(dict)
-    callbackLogs = pyqtSignal(int, str)
+    callbackLogs = pyqtSignal(int, list, str)
 
     __sed_fio_pattern = r'FIO.{5}([А-Яа-я\s]+)'
     __sed_roles_pattern = r"Roles.{5}([A-Za-z\r]+)"
@@ -270,10 +272,11 @@ class ExcelLoader(QDialog):
             self.__loader.start(self.select_sheet_file.nrows - 1)
             self.loading = True
             self.loadingPause = False
+            self.callbackLogs.emit(202, [select_system], '')
             self.readExcel() 
             self.__loader.show()
         except Exception as e:
-            self.callbackLogs.emit(401, str(e))
+            self.callbackLogs.emit(401, None, str(e))
             show_messagebox("err", "Ошибка загрузки", str(e))
 
     def readExcel(self):
@@ -294,20 +297,20 @@ class ExcelLoader(QDialog):
                 self.current_iteration += 1
                 QTimer.singleShot(0, self.readExcel)
             except Exception as e:
-                self.callbackLogs.emit(401, str(e))
+                self.callbackLogs.emit(401, None, str(e))
                 show_messagebox("err", "Ошибка загрузки", str(e))
                 self.closeLoading()
                 self.__loader.reset()
         else:
-            self.callbackData.emit({'data': self.output_data, 'users': self.list_users})
+            self.callbackData.emit({'data': self.output_data, 'users': self.list_users, 'system': self.selectSystem.currentText()})
             self.closeLoading()
         
 class Ui(QMainWindow):
     def __init__(self, handler):
         super(Ui, self).__init__()
+        
         self.conn_matrix = connect(
-            # database='matrix', **passwords.DB
-            database='test_matrix', **passwords.DB
+            database=('test_matrix' if DEBUG else 'matrix'), **passwords.DB
             # database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
         )
         self.conn_auth = connect(
@@ -317,12 +320,15 @@ class Ui(QMainWindow):
 
         self.__excel_loader = ExcelLoader()
         self.__excel_loader.callbackData.connect(self.loadExcel) 
-        self.__excel_loader.callbackLogs.connect(lambda code, err: self.addLogs(code, [''], err)) 
+        self.__excel_loader.callbackLogs.connect(lambda code, args, err: self.addLogs(code, args, err)) 
 
         self.list_users = {}
         self.select_users = []
-        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'interfaces/MainWindow.ui')
+        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), f'interfaces/{"MainWindow_test.ui" if DEBUG else "MainWindow.ui"}')
         uic.loadUi(ui_file, self)
+        if DEBUG:
+            pass
+
         self.selectDepartments.currentIndexChanged.connect(self.onChangeDepartment)
         self.submit.clicked.connect(self.get_data_tree)
         self.getDefaultData()
@@ -339,19 +345,29 @@ class Ui(QMainWindow):
         self.show()
 
     def loadExcel(self, data):
-        roles = data['data'] # its dict
-        users = data['users'] # its set
-        cursor = self.conn_auth.cursor()
-        cursor.execute('''
-                       SELECT id, name 
-                       FROM "Auth_LDAP_customuser" 
-                       WHERE name IN %s
-                       ''', (tuple(users), ))
-        self.list_users.clear()
-        self.select_users.clear()
-        for id, name in cursor.fetchall():
-            self.select_users.append(name)
-            self.list_users[name] = id
+        roles = data['data'] # dict
+        users = data['users'] # set
+
+        id_system = self.addNewSystem(data['system'])
+        with self.conn_matrix.cursor() as cursor_matrix:
+            cursor_matrix.execute('''
+                UPDATE "KingMatrixAPI_userroles" 
+                SET "isChecked" = FALSE  
+                WHERE "system_id" IN (SELECT id FROM "KingMatrixAPI_systems" WHERE "parent_id" = %s)
+            ''', (id_system,))
+            
+        with self.conn_auth.cursor() as cursor_auth:
+            cursor_auth.execute('''
+                        SELECT id, name 
+                        FROM "Auth_LDAP_customuser" 
+                        WHERE name IN %s
+                        ''', (tuple(users), ))
+            
+            self.list_users.clear()
+            self.select_users.clear()
+            for id, name in cursor_auth.fetchall():
+                self.select_users.append(name)
+                self.list_users[name] = id
 
         t1 = threading.Thread(target=self.restructurData, args=(roles,))
         t1.start()
@@ -430,7 +446,7 @@ class Ui(QMainWindow):
             self.addLogs(202, [system_el], '')
 
             next_is_data = False
-            for log in handler.start(self.select_users, system_el, self.browserPath.text(), self.selectVersionBrowser.currentText()):
+            for log in handler.start(self.select_users, system_el, self.browserPath.text(), self.selectVersionBrowser.currentText(), debug=DEBUG):
                 if next_is_data:
                     if log:
                         self.restructurData(log)
