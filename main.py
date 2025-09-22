@@ -19,6 +19,8 @@ from PyQt5.QtCore import QTimer
 
 DEBUG = False
 
+SYSTEMS =  ['SOBI', 'AXIOK', 'EIS', 'SEDS', 'EBP']
+
 # Шаблоны логов
 MESSAGES = {
     100: {'type_msg': 'info', 'title': "Сбор данных в системе - {} закончен."},
@@ -31,6 +33,7 @@ MESSAGES = {
     403: {'type_msg': 'error', 'title': "Запрос не может быть обработан."},
     404: {'type_msg': 'warn', 'title': "Пользователь {} не найден в подсистеме."},
     405: {'type_msg': 'warn', 'title': "Не удалось расшифровать данные пользователя {}."},
+    406: {'type_msg': 'warn', 'title': "У пользователя {} отсутствуют роли."},
     500: {'type_msg': 'error', 'title': "Системная ошибка."}
 }
 
@@ -308,11 +311,6 @@ class ExcelLoader(QDialog):
 class Ui(QMainWindow):
     def __init__(self, handler):
         super(Ui, self).__init__()
-        
-        self.conn_matrix = connect(
-            database=('test_matrix' if DEBUG else 'matrix'), **passwords.DB
-            # database="matrix", user='postgres', password='admin', host='localhost', port= '5432'
-        )
         self.conn_auth = connect(
             database='auth_db', **passwords.DB
             # database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
@@ -349,11 +347,11 @@ class Ui(QMainWindow):
         users = data['users'] # set
 
         id_system = self.addNewSystem(data['system'])
-        with self.conn_matrix.cursor() as cursor_matrix:
+        with self.conn_auth.cursor() as cursor_matrix:
             cursor_matrix.execute('''
-                UPDATE "KingMatrixAPI_userroles" 
+                UPDATE "matrix_userroles" 
                 SET "isChecked" = FALSE  
-                WHERE "system_id" IN (SELECT id FROM "KingMatrixAPI_systems" WHERE "parent_id" = %s)
+                WHERE "system_id" IN (SELECT id FROM "matrix_systems" WHERE "parent_id" = %s)
             ''', (id_system,))
             
         with self.conn_auth.cursor() as cursor_auth:
@@ -432,12 +430,12 @@ class Ui(QMainWindow):
             self.select_users = [self.selectEmployee.itemText(i+1) for i in range(self.selectEmployee.count() - 1)]
         else:
             self.select_users = [self.selectEmployee.currentText()]
-        if not any([self.checkerPoib.isChecked(), self.checkerAxiok.isChecked(), self.checkerEis.isChecked(), self.checkerSeds.isChecked()]):
+        if not any([self.checkerPoib.isChecked(), self.checkerAxiok.isChecked(), self.checkerEis.isChecked(), self.checkerSeds.isChecked(), self.checkerEBP.isChecked()]):
             if not show_messagebox("info", "Подтвердите действие", "Не выбрана ни одна подсистема. Поиск будет производится по всем имеющимся.", True):
                 return
-            list_systems = ['SOBI', 'AXIOK', 'EIS', 'SEDS']
+            list_systems = SYSTEMS
         else:
-            list_systems = [system for system, checkbox in [('SOBI', self.checkerPoib), ('AXIOK', self.checkerAxiok), ('EIS', self.checkerEis), ('SEDS', self.checkerSeds)] if checkbox.isChecked()]
+            list_systems = [system for system, checkbox in [('SOBI', self.checkerPoib), ('AXIOK', self.checkerAxiok), ('EIS', self.checkerEis), ('SEDS', self.checkerSeds), ('EBP', self.checkerEBP)] if checkbox.isChecked()]
         t1 = threading.Thread(target=self.process_logs, args=(list_systems,))
         t1.start()
 
@@ -522,12 +520,12 @@ class Ui(QMainWindow):
                 self.addLogs(400, [key], str(e))
         count_delete = self.deleteInactiveRoles()
         self.addLogs(201, [], f'Общее количество - {counter["check"]}; Создано - {counter["create"]}; Ошибок - {counter["errors"]}; Не найден пользователь - {counter["undefined"]}; Удалено полномочий - {count_delete}')
-        self.conn_matrix.commit()
+        self.conn_auth.commit()
 
     def deleteInactiveRoles(self):
-        with self.conn_matrix.cursor() as cursor_matrix:
+        with self.conn_auth.cursor() as cursor_matrix:
             cursor_matrix.execute('''
-                DELETE FROM "KingMatrixAPI_userroles" 
+                DELETE FROM "matrix_userroles" 
                 WHERE "isChecked" = FALSE
             ''', ())
 
@@ -535,23 +533,23 @@ class Ui(QMainWindow):
         return data
 
     def setDeleteFlag(self, id_system: str):
-        with self.conn_matrix.cursor() as cursor_matrix:
+        with self.conn_auth.cursor() as cursor_matrix:
             cursor_matrix.execute('''
-                UPDATE "KingMatrixAPI_userroles" 
+                UPDATE "matrix_userroles" 
                 SET "isChecked" = FALSE  
-                WHERE "user" IN %s
+                WHERE "user_id" IN %s
                                 AND ("system_id" = %s
-                                OR "system_id" IN (SELECT id FROM "KingMatrixAPI_systems" WHERE "parent_id" = %s))
+                                OR "system_id" IN (SELECT id FROM "matrix_systems" WHERE "parent_id" = %s))
             ''', (tuple(self.list_users[name] for name in self.select_users), id_system, id_system))
 
     def addLogsMatrix(self, users, system):
-        with self.conn_matrix.cursor() as cursor_matrix:
+        with self.conn_auth.cursor() as cursor_matrix:
             cursor_matrix.execute('''
-                DELETE FROM "KingMatrixAPI_logupdates"  
-                WHERE "user" = ANY(%s::int[])  AND "system_id" = %s
+                DELETE FROM "matrix_logupdates"  
+                WHERE "user_id" = ANY(%s::int[])  AND "system_id" = %s
             ''', (list(users), system))
             cursor_matrix.execute('''
-                INSERT INTO "KingMatrixAPI_logupdates" ("user", "system_id", "date_msg") 
+                INSERT INTO "matrix_logupdates" ("user_id", "system_id", "date_msg") 
                 SELECT unnest(%s::int[]), %s, NOW()
             ''', (list(users), system))
             data = cursor_matrix.rowcount
@@ -559,22 +557,22 @@ class Ui(QMainWindow):
         return data
     
     def addUserRoles(self, id_user, id_role, id_system):
-        with self.conn_matrix.cursor() as cursor_matrix:
+        with self.conn_auth.cursor() as cursor_matrix:
             cursor_matrix.execute('''
-                SELECT id FROM "KingMatrixAPI_userroles" WHERE "user" = %s AND "role_id" = %s
+                SELECT id FROM "matrix_userroles" WHERE "user_id" = %s AND "role_id" = %s
             ''', (id_user, id_role))
                 
             data = cursor_matrix.fetchone()
             if data:
                 cursor_matrix.execute('''
-                    UPDATE "KingMatrixAPI_userroles" 
+                    UPDATE "matrix_userroles" 
                     SET "isChecked" = TRUE 
                     WHERE "id" = %s
                 ''', (data,))
                 return None
             else:
                 cursor_matrix.execute('''
-                    INSERT INTO "KingMatrixAPI_userroles" ("user", role_id, "system_id", "isChecked") 
+                    INSERT INTO "matrix_userroles" ("user_id", role_id, "system_id", "isChecked") 
                     VALUES (%s, %s, %s, %s)
                     RETURNING id
                 ''', (id_user, id_role, id_system, True))
@@ -583,52 +581,51 @@ class Ui(QMainWindow):
             return data[0]
 
     def addNewRole(self, role):
-        with self.conn_matrix.cursor() as cursor_matrix:
+        with self.conn_auth.cursor() as cursor_matrix:
             # Сначала проверяем, существует ли роль
             cursor_matrix.execute('''
-                SELECT id FROM "KingMatrixAPI_roles" WHERE name = %s
+                SELECT id FROM "matrix_roles" WHERE name = %s
             ''', (role,))
             
             data = cursor_matrix.fetchone()
             
             if data is None:
                 cursor_matrix.execute('''
-                    INSERT INTO "KingMatrixAPI_roles" (name) 
+                    INSERT INTO "matrix_roles" (name) 
                     VALUES (%s)
                     RETURNING id
                 ''', (role,))
                 data = cursor_matrix.fetchone()
-        self.conn_matrix.commit()
+        self.conn_auth.commit()
 
         return data[0]
 
     def addNewSystem(self, system_name, id_parent=None):
-        with self.conn_matrix.cursor() as cursor_matrix:
+        with self.conn_auth.cursor() as cursor_matrix:
             # Сначала проверяем, существует ли система
             if id_parent:
                 cursor_matrix.execute('''
-                    SELECT id FROM "KingMatrixAPI_systems" WHERE name = %s AND parent_id = %s
+                    SELECT id FROM "matrix_systems" WHERE name = %s AND parent_id = %s
                 ''', (system_name, id_parent))
             else:
                 cursor_matrix.execute('''
-                    SELECT id FROM "KingMatrixAPI_systems" WHERE name = %s AND parent_id IS NULL
+                    SELECT id FROM "matrix_systems" WHERE name = %s AND parent_id IS NULL
                 ''', (system_name,))
             
             data = cursor_matrix.fetchone()
             if data is None:
                 cursor_matrix.execute('''
-                    INSERT INTO "KingMatrixAPI_systems" (name, parent_id) 
+                    INSERT INTO "matrix_systems" (name, parent_id) 
                     VALUES (%s, %s)
                     RETURNING id
                 ''', (system_name, id_parent))
                 
                 data = cursor_matrix.fetchone()
-        self.conn_matrix.commit()
+        self.conn_auth.commit()
         
         return data[0]
     
     def closeEvent(self, event):
-        self.conn_matrix.close()
         self.conn_auth.close()
         settings = QSettings("Matrix", "Settings")
         settings.setValue("browserPath", self.browserPath.text())

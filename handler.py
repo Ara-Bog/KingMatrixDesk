@@ -16,8 +16,15 @@ class HandlerRoles():
     __routes = {
         'SOBI': {
             "main_url": "https://sobi.cert.roskazna.ru/",
-            "id_url": "https://sobi.cert.roskazna.ru/poib/am/api/accounts/?page=1&limit=10&name={}&org=Управление федерального казначейства по Московской области&orderByAsc=name",
-            "roles_url": "https://sobi.cert.roskazna.ru/poib/am/api/accounts/{}/roles/?enrichGroups=true"
+            "stop_auth": "https://sobi.cert.roskazna.ru/poib/am/#/profile",
+            "id_url": "https://sobi.cert.roskazna.ru/poib/am/api/accounts/?page=1&limit=10&name={}&org=Управление федерального казначейства по Московской области&orderByAsc=name", # ФИО
+            "roles_url": "https://sobi.cert.roskazna.ru/poib/am/api/accounts/{}/roles/?enrichGroups=true" # id сотрудника
+        },
+        'EBP': {
+            "main_url": "https://auth.finance.gov.ru/login",
+            "stop_auth": "https://finance.gov.ru/actual",
+            "id_url": "https://finance.gov.ru/api/ppa/user/page?lastName={}&firstName={}&middleName={}&page=0&size=20", # Фамилия Имя Отчество
+            "roles_url": "https://finance.gov.ru/api/ppa/organization_type_rules?ruleValue=true&userRegistryOrganizationExKey={}" # exKey сотрудника
         },
         'EIS': {
             "main_url": "https://lk.zakupki.gov.ru/sso/secure",
@@ -59,13 +66,17 @@ class HandlerRoles():
         self.__options.add_experimental_option("excludeSwitches", ["enable-logging"])
         # self.__options.binary_location = '/usr/bin/chromium-gost'
 
-        self.__routes['functions'] = {'SOBI': self.open_sobi, 'EIS': self.open_eis, 'AXIOK': self.open_axiok, 'SEDS': self.open_seds}
+        self.__routes['functions'] = {'SOBI': self.open_sobi, 'EIS': self.open_eis, 'AXIOK': self.open_axiok, 'SEDS': self.open_seds, 'EBP': self.open_ebp}
 
     def clean_string(self, name):
         return re.sub(r'\s+', ' ', name).strip()
     
     def __await_load(self):
         while self.__driver.execute_script("return document.readyState") != "complete":
+            time.sleep(1)
+
+    def __await_auth(self, stop_url):
+        while self.__driver.current_url != stop_url:
             time.sleep(1)
 
     def get_supported_chrome(self) -> list:
@@ -102,17 +113,131 @@ class HandlerRoles():
             else:
                 time.sleep(0.1)
 
-    def __get_response(self, url:str, *args) -> dict:
-        script = f"""
-            arguments[0](fetch('{url.format(*args)}').then(response => response.json()));
+    def __get_token_from_cookies(self, key: str) -> str:
+        cookies = self.__driver.get_cookies()
+        for cookie in cookies:
+            if cookie['name'] == key:
+                return urllib.parse.unquote(cookie['value'])
+        return None
+
+    def __get_response(self, url:str, headers=None, *args) -> dict:
         """
-
+        Выполняет асинхронный HTTP GET запрос к url (с форматированием args) через JS fetch в браузере Selenium,
+        возвращает ответ в виде Python-словаря.
+        """
+        formatted_url = url.format(*args)
+        script = f"""
+        const callback = arguments[0];
+        fetch('{formatted_url}', {{
+                headers: {json.dumps(headers, ensure_ascii=False)}
+            }})
+            .then(response => {{
+                if (!response.ok) {{
+                    throw new Error('HTTP error ' + response.status);
+                }}
+                return response.json();
+            }})
+            .then(data => callback({{success: true, code: 200, data: data}}))
+            .catch(error => {{
+                let statusCode = null;
+                if (error.message && error.message.includes('HTTP error')) {{
+                    statusCode = parseInt(error.message.split(' ').pop());
+                }}
+                callback({{success: false, code: statusCode, error: error.toString()}})
+            }});
+        """
+        
         response = self.__driver.execute_async_script(script)
-        response_json = json.dumps(response, ensure_ascii=False)
-        response = json.loads(response_json)
-
-        return response
+        return {"data": response.get('data', {}), "code": response.get('code', 404)}
     
+    def open_ebp(self, main_url: str, id_url: str, roles_url: str, stop_auth: str, **kwards) -> None:
+        try:
+            self.__driver.get(main_url)
+            self.__await_auth(stop_auth)
+        except Exception as e:
+            self.__log_queue.put({'code': 403, 'discription': str(e)})
+            self.__driver.quit()
+            self.__result_queue.put(None)
+            return
+
+        roles = {'ЕБП': {'parent': None, 'roles': {}}}
+        token = self.__get_token_from_cookies('_auth')
+        headers = {
+            'authorization': token
+        }
+        
+        for name in self.__names:
+            try:
+            # "_" - в соби соответствует 1 любому символу
+                correct_name = re.sub(r'[её]', '_', name).split(" ")
+                response_user = self.__get_response(id_url, headers, *correct_name)
+                response_user = response_user['data']
+                if not response_user.get('empty', True):
+                    response_roles = self.__get_response(roles_url, headers, response_user['content'][0]['exKey'])
+                    # ЕБП в случае отсутствия ролей возвращает 404 ошибку (дааа, прикол конечно)
+                    if response_roles['code'] == 404:
+                        self.__log_queue.put({'code': 406, 'args': [name]})
+                    user_roles = response_roles['data']
+                else:
+                    self.__log_queue.put({'code': 404, 'args': [name]})
+                    continue
+            except Exception as e:
+                self.__log_queue.put({'code': 401, 'discription': str(e)})
+                continue
+            for section in user_roles:
+                system = section['name']
+                roles.setdefault(system, {'parent': "ЕБП", 'roles': {}})
+
+                for sub_section in section['submenuSection']:
+                    for role in sub_section['objectList']:
+                        roles[system]['roles'].setdefault(role['name'], [])
+                        roles[system]['roles'][role['name']].append(name)
+                    
+        self.__log_queue.put({'code': 100})
+        self.__driver.quit()
+        self.__result_queue.put(roles)
+    
+    def open_sobi(self, main_url: str, id_url: str, roles_url: str, stop_auth: str, **kwards) -> None:
+        try:
+            self.__driver.get(main_url)
+            self.__await_auth(stop_auth)
+        except Exception as e:
+            self.__log_queue.put({'code': 403, 'discription': str(e)})
+            self.__driver.quit()
+            self.__result_queue.put(None)
+            return
+
+        roles = {}
+        for name in self.__names:
+            
+            try:
+                # "_" - в соби соответствует 1 любому символу
+                correct_name = re.sub(r'[её]', '_', name)
+                response_id = self.__get_response(id_url, {}, correct_name)['data']
+                if len(response_id['list']) > 0:
+                    response_roles = self.__get_response(roles_url, {}, response_id['list'][0]['id'])['data']
+                else:
+                    self.__log_queue.put({'code': 404, 'args': [name]})
+                    continue
+            except Exception as e:
+                self.__log_queue.put({'code': 401, 'discription': str(e)})
+                continue
+            for role in response_roles['list']:
+                if len(role['groups']) == 0:
+                    role['groups'].append(None)
+                    
+                for group in role['groups']:
+                    select_system, parent = (role['systemName'], None) if group == None else (group, role['systemName'])
+
+                    roles.setdefault(select_system, {'parent': parent, 'roles': {}})
+                    roles[select_system]['roles'].setdefault(role['roleName'], [])
+                    
+                    roles[select_system]['roles'][role['roleName']].append(name)
+
+        self.__log_queue.put({'code': 100})
+        self.__driver.quit()
+        self.__result_queue.put(roles)
+
     def open_seds(self, sed_fio_pattern: str, sed_roles_pattern:str, **kwards):
         roles = {}
         for server, db in psw.SED_DB.items():
@@ -302,48 +427,6 @@ class HandlerRoles():
 
             if empty_user:
                 self.__log_queue.put({'code': 404, 'args': [name]})
-
-        self.__log_queue.put({'code': 100})
-        self.__driver.quit()
-        self.__result_queue.put(roles)
-
-    def open_sobi(self, main_url: str, id_url: str, roles_url: str, **kwards) -> None:
-        try:
-            self.__driver.get(main_url)
-            self.__await_load()
-        except Exception as e:
-            self.__log_queue.put({'code': 403, 'discription': str(e)})
-            self.__driver.quit()
-            self.__result_queue.put(None)
-            return
-
-        roles = {}
-        for name in self.__names:
-            
-            try:
-                # "_" - в соби соответствует 1 любому символу
-                correct_name = re.sub(r'[её]', '_', name)
-                response_id = self.__get_response(id_url, correct_name)
-                if len(response_id['list']) > 0:
-                    response_roles = self.__get_response(roles_url, response_id['list'][0]['id'])
-                else:
-                    self.__log_queue.put({'code': 404, 'args': [name]})
-                    continue
-            except Exception as e:
-                self.__log_queue.put({'code': 401, 'discription': str(e)})
-                continue
-            
-            for role in response_roles['list']:
-                if len(role['groups']) == 0:
-                    role['groups'].append(None)
-                    
-                for group in role['groups']:
-                    select_system, parent = (role['systemName'], None) if group == None else (group, role['systemName'])
-
-                    roles.setdefault(select_system, {'parent': parent, 'roles': {}})
-                    roles[select_system]['roles'].setdefault(role['roleName'], [])
-                    
-                    roles[select_system]['roles'][role['roleName']].append(name)
 
         self.__log_queue.put({'code': 100})
         self.__driver.quit()
