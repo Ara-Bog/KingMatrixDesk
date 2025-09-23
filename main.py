@@ -1,7 +1,7 @@
 from PyQt5 import uic
 from PyQt5.QtCore import Qt, QSettings, pyqtSignal
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
-from PyQt5.QtWidgets import QMessageBox, QFileDialog, QMainWindow, QApplication, QDialog, QDialogButtonBox
+from PyQt5.QtWidgets import QMessageBox, QFileDialog, QMainWindow, QApplication, QDialog, QCheckBox
 from psycopg2 import connect
 import sys
 from datetime import datetime
@@ -17,9 +17,14 @@ import requests
 
 from PyQt5.QtCore import QTimer
 
-DEBUG = False
 
-SYSTEMS =  ['SOBI', 'AXIOK', 'EIS', 'SEDS', 'EBP']
+SYSTEMS =  [
+    ('SOBI', 'ПОИБ СОБИ'),
+    ('EIS', 'ЕИС'),
+    ('AXIOK', 'Аксиок Планирование'),
+    ('EBP', 'ЕБП'),
+    ('SEDS', 'СедЫ'),
+]
 
 # Шаблоны логов
 MESSAGES = {
@@ -313,20 +318,18 @@ class Ui(QMainWindow):
         super(Ui, self).__init__()
         self.conn_auth = connect(
             database='auth_db', **passwords.DB
-            # database="auth_db", user='postgres', password='admin', host='localhost', port= '5432'
         )
 
         self.__excel_loader = ExcelLoader()
         self.__excel_loader.callbackData.connect(self.loadExcel) 
         self.__excel_loader.callbackLogs.connect(lambda code, args, err: self.addLogs(code, args, err)) 
-
         self.list_users = {}
         self.select_users = []
-        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), f'interfaces/{"MainWindow_test.ui" if DEBUG else "MainWindow.ui"}')
+        ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'interfaces/MainWindow.ui')
         uic.loadUi(ui_file, self)
-        if DEBUG:
-            pass
 
+        self.systems_mapping = {}
+        self.setup_dynamic_checkboxes()
         self.selectDepartments.currentIndexChanged.connect(self.onChangeDepartment)
         self.submit.clicked.connect(self.get_data_tree)
         self.getDefaultData()
@@ -341,7 +344,26 @@ class Ui(QMainWindow):
         self.selectVersionBrowser.setCurrentIndex(0)
         self.cache = []
         self.show()
+    
+    def setup_dynamic_checkboxes(self):
+        """Автоматически распределяем чекбоксы по checkboxLayout"""
+        
+        columns_per_row = 5  # Максимальное количество чекбоксов в строке
+        
+        for i, (system_code, display_name) in enumerate(SYSTEMS):
+            checkbox = QCheckBox(display_name)
+            checkbox.setCursor(Qt.PointingHandCursor)
+            
+            row = i // columns_per_row
+            col = i % columns_per_row
+            
+            self.checkboxLayout.addWidget(checkbox, row, col)
+            self.systems_mapping[system_code] = checkbox
 
+    def get_checked_systems(self):
+        return [system for system, checkbox in self.systems_mapping.items() 
+                if checkbox.isChecked()]
+    
     def loadExcel(self, data):
         roles = data['data'] # dict
         users = data['users'] # set
@@ -430,12 +452,11 @@ class Ui(QMainWindow):
             self.select_users = [self.selectEmployee.itemText(i+1) for i in range(self.selectEmployee.count() - 1)]
         else:
             self.select_users = [self.selectEmployee.currentText()]
-        if not any([self.checkerPoib.isChecked(), self.checkerAxiok.isChecked(), self.checkerEis.isChecked(), self.checkerSeds.isChecked(), self.checkerEBP.isChecked()]):
+        list_systems = self.get_checked_systems()
+        if not list_systems:
             if not show_messagebox("info", "Подтвердите действие", "Не выбрана ни одна подсистема. Поиск будет производится по всем имеющимся.", True):
                 return
-            list_systems = SYSTEMS
-        else:
-            list_systems = [system for system, checkbox in [('SOBI', self.checkerPoib), ('AXIOK', self.checkerAxiok), ('EIS', self.checkerEis), ('SEDS', self.checkerSeds), ('EBP', self.checkerEBP)] if checkbox.isChecked()]
+            list_systems = self.systems_mapping.keys()
         t1 = threading.Thread(target=self.process_logs, args=(list_systems,))
         t1.start()
 
@@ -444,7 +465,7 @@ class Ui(QMainWindow):
             self.addLogs(202, [system_el], '')
 
             next_is_data = False
-            for log in handler.start(self.select_users, system_el, self.browserPath.text(), self.selectVersionBrowser.currentText(), debug=DEBUG):
+            for log in handler.start(self.select_users, system_el, self.browserPath.text(), self.selectVersionBrowser.currentText()):
                 if next_is_data:
                     if log:
                         self.restructurData(log)

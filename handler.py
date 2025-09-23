@@ -72,17 +72,20 @@ class HandlerRoles():
         return re.sub(r'\s+', ' ', name).strip()
     
     def __await_load(self):
+        """Ожидание, пока страница полностью не загрузится"""
         while self.__driver.execute_script("return document.readyState") != "complete":
             time.sleep(1)
 
     def __await_auth(self, stop_url):
+        """Ожидание, пока адрес браузера не сменится на передаваемый"""
         while self.__driver.current_url != stop_url:
             time.sleep(1)
 
     def get_supported_chrome(self) -> list:
+        """Возврат поддерживаемых версий хрома"""
         return list(self.__chrome_versions.keys())
 
-    def start(self, names: list, system: str, chromium_path: str, chromium_v: str, debug=False):
+    def start(self, names: list, system: str, chromium_path: str, chromium_v: str):
         if system not in self.__routes:
             yield {'code': 403, 'args': []}
             return 
@@ -114,6 +117,7 @@ class HandlerRoles():
                 time.sleep(0.1)
 
     def __get_token_from_cookies(self, key: str) -> str:
+        """Получение куки по ключу"""
         cookies = self.__driver.get_cookies()
         for cookie in cookies:
             if cookie['name'] == key:
@@ -122,7 +126,7 @@ class HandlerRoles():
 
     def __get_response(self, url:str, headers=None, *args) -> dict:
         """
-        Выполняет асинхронный HTTP GET запрос к url (с форматированием args) через JS fetch в браузере Selenium,
+        Выполняет асинхронный HTTP GET запрос к url (с форматированием args) через JS fetch в браузере,
         возвращает ответ в виде Python-словаря.
         """
         formatted_url = url.format(*args)
