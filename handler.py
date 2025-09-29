@@ -194,8 +194,9 @@ class HandlerRoles():
 
                 for sub_section in section['submenuSection']:
                     for role in sub_section['objectList']:
-                        roles[system]['roles'].setdefault(role['name'], [])
-                        roles[system]['roles'][role['name']].append(name)
+                        for rule in role['rules']:
+                            roles[system]['roles'].setdefault(rule['name'], [])
+                            roles[system]['roles'][rule['name']].append(name)
                     
         self.__log_queue.put({'code': 100})
         self.__driver.quit()
