@@ -24,7 +24,8 @@ class HandlerRoles():
             "main_url": "https://auth.finance.gov.ru/login",
             "stop_auth": "https://finance.gov.ru/actual",
             "id_url": "https://finance.gov.ru/api/ppa/user/page?lastName={}&firstName={}&middleName={}&page=0&size=20", # Фамилия Имя Отчество
-            "roles_url": "https://finance.gov.ru/api/ppa/organization_type_rules?ruleValue=true&userRegistryOrganizationExKey={}" # exKey сотрудника
+            "roles_url": "https://finance.gov.ru/api/ppa/organization_type_rules?ruleValue=true&userRegistryOrganizationExKey={}", # exKey сотрудника
+            "mchd_url": "https://finance.gov.ru/api/urd-proxy/representative-attorney-letters?representativeLogin={}" # exKey сотрудника
         },
         'EIS': {
             "main_url": "https://lk.zakupki.gov.ru/sso/secure",
@@ -176,8 +177,10 @@ class HandlerRoles():
                 correct_name = re.sub(r'[её]', '_', name).split(" ")
                 response_user = self.__get_response(id_url, headers, *correct_name)
                 response_user = response_user['data']
+                exKey_user = response_user['content'][0]['exKey']
+
                 if not response_user.get('empty', True):
-                    response_roles = self.__get_response(roles_url, headers, response_user['content'][0]['exKey'])
+                    response_roles = self.__get_response(roles_url, headers, exKey_user)
                     # ЕБП в случае отсутствия ролей возвращает 404 ошибку (дааа, прикол конечно)
                     if response_roles['code'] == 404:
                         self.__log_queue.put({'code': 406, 'args': [name]})
@@ -197,6 +200,17 @@ class HandlerRoles():
                         for rule in role['rules']:
                             roles[system]['roles'].setdefault(rule['name'], [])
                             roles[system]['roles'][rule['name']].append(name)
+            
+            # РОЛИ из мчд
+            mchd_user = self.__get_response(kwards['mchd_url'], headers, exKey_user)['data']
+            for mchd in mchd_user:
+                date_end = mchd['issueEndDate'].split('-')
+                system_name = f"МЧД {mchd['alNumber']} до {date_end[2]}.{date_end[1]}.{date_end[0]}"
+                roles.setdefault(system_name, {'parent': "ЕБП", 'roles': {}})
+
+                for role_user in mchd['privileges']:
+                    roles[system_name]['roles'].setdefault(role_user['name'], [])
+                    roles[system_name]['roles'][role_user['name']].append(name)
                     
         self.__log_queue.put({'code': 100})
         self.__driver.quit()
