@@ -522,7 +522,7 @@ class Ui(QMainWindow):
                 for role in data[key]['roles']:
                     if not role:
                         continue
-                    role_id = self.addNewRole(role)  # Изменено: убрано id_system
+                    role_id = self.addNewRole(role) 
 
                     for user in data[key]['roles'][role]:
                         counter['check'] += 1
@@ -531,7 +531,7 @@ class Ui(QMainWindow):
                             counter['undefined'] += 1
                             continue
                         updated_users.add(id_user)
-                        relation = self.addUserRoles(id_user, role_id, id_system)  # Передаем id_system
+                        relation = self.addUserRoles(id_user, role_id, id_system)
                         if relation:
                             counter['create'] += 1
                 self.addLogsMatrix(updated_users, added_data['id'])
@@ -580,8 +580,8 @@ class Ui(QMainWindow):
     def addUserRoles(self, id_user, id_role, id_system):
         with self.conn_auth.cursor() as cursor_matrix:
             cursor_matrix.execute('''
-                SELECT id FROM "matrix_userroles" WHERE "user_id" = %s AND "role_id" = %s
-            ''', (id_user, id_role))
+                SELECT id FROM "matrix_userroles" WHERE "user_id" = %s AND "role_id" = %s AND "system_id" = %s
+            ''', (id_user, id_role, id_system))
                 
             data = cursor_matrix.fetchone()
             if data:

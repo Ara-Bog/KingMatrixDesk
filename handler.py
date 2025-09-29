@@ -177,9 +177,10 @@ class HandlerRoles():
                 correct_name = re.sub(r'[её]', '_', name).split(" ")
                 response_user = self.__get_response(id_url, headers, *correct_name)
                 response_user = response_user['data']
-                exKey_user = response_user['content'][0]['exKey']
+                exKey_user = ""
 
                 if not response_user.get('empty', True):
+                    exKey_user = response_user['content'][0]['exKey']
                     response_roles = self.__get_response(roles_url, headers, exKey_user)
                     # ЕБП в случае отсутствия ролей возвращает 404 ошибку (дааа, прикол конечно)
                     if response_roles['code'] == 404:
@@ -204,14 +205,15 @@ class HandlerRoles():
             # РОЛИ из мчд
             mchd_user = self.__get_response(kwards['mchd_url'], headers, exKey_user)['data']
             for mchd in mchd_user:
+                if not mchd['actual']: continue
+
                 date_end = mchd['issueEndDate'].split('-')
                 system_name = f"МЧД {mchd['alNumber']} до {date_end[2]}.{date_end[1]}.{date_end[0]}"
                 roles.setdefault(system_name, {'parent': "ЕБП", 'roles': {}})
-
                 for role_user in mchd['privileges']:
                     roles[system_name]['roles'].setdefault(role_user['name'], [])
                     roles[system_name]['roles'][role_user['name']].append(name)
-                    
+
         self.__log_queue.put({'code': 100})
         self.__driver.quit()
         self.__result_queue.put(roles)
@@ -450,3 +452,4 @@ class HandlerRoles():
         self.__log_queue.put({'code': 100})
         self.__driver.quit()
         self.__result_queue.put(roles)
+
